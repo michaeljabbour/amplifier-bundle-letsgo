@@ -60,14 +60,36 @@ def _resolve_base_dir(config: dict) -> Path:
 class ToolPolicyHook:
     """Stateful policy engine instantiated once per mount with frozen config."""
 
+    @staticmethod
+    def _normalize_tool_names(names: list[str]) -> set[str]:
+        """Build a lookup set that accepts both module-id and mounted-name forms.
+
+        amplifier-core events use the *mounted* tool name (e.g. ``bash``,
+        ``read_file``) while bundle configs often use the *module id*
+        (e.g. ``tool-bash``, ``tool-filesystem``).  By indexing both forms
+        we match regardless of which convention the caller or config uses.
+        """
+        result: set[str] = set()
+        for name in names:
+            result.add(name)
+            # tool-bash  →  bash
+            if name.startswith("tool-"):
+                result.add(name[5:])
+            else:
+                # bash  →  tool-bash
+                result.add(f"tool-{name}")
+        return result
+
     def __init__(self, config: dict[str, Any]) -> None:
-        # Risk classification lists
-        self.blocked_tools: list[str] = config.get("blocked_tools", [])
-        self.high_risk_tools: list[str] = config.get("high_risk_tools", ["tool-bash"])
-        self.medium_risk_tools: list[str] = config.get(
-            "medium_risk_tools", ["tool-filesystem"]
+        # Risk classification lists — normalized to accept both naming conventions
+        self.blocked_tools = self._normalize_tool_names(config.get("blocked_tools", []))
+        self.high_risk_tools = self._normalize_tool_names(
+            config.get("high_risk_tools", ["bash", "write_file"])
         )
-        self.low_risk_tools: list[str] = config.get("low_risk_tools", [])
+        self.medium_risk_tools = self._normalize_tool_names(
+            config.get("medium_risk_tools", ["edit_file", "read_file"])
+        )
+        self.low_risk_tools = self._normalize_tool_names(config.get("low_risk_tools", []))
 
         # Default action for unlisted tools: "deny" | "ask_user" | "continue"
         self.default_action: str = config.get("default_action", "deny")
