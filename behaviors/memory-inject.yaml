@@ -1,0 +1,17 @@
+bundle:
+  name: behavior-memory-inject
+  version: 1.0.0
+  description: Auto-inject relevant memories into agent context at prompt time
+
+hooks:
+  - module: hooks-memory-inject
+    source: ./modules/hooks-memory-inject
+    config:
+      memory_db_path: ~/.letsgo/memories.db
+      max_memories: 5
+      max_injection_tokens: 2000
+      enabled: true
+
+context:
+  include:
+    - letsgo:context/memory-awareness.md

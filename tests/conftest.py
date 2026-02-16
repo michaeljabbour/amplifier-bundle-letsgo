@@ -20,6 +20,7 @@ _BUNDLE_ROOT = Path(__file__).resolve().parent.parent
 _MODULE_DIRS = [
     _BUNDLE_ROOT / "modules" / "hooks-tool-policy",
     _BUNDLE_ROOT / "modules" / "hooks-telemetry",
+    _BUNDLE_ROOT / "modules" / "hooks-memory-inject",
     _BUNDLE_ROOT / "modules" / "tool-sandbox",
     _BUNDLE_ROOT / "modules" / "tool-secrets",
 ]
