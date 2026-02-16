@@ -1,6 +1,6 @@
 """Durable memory store with SQLite, FTS5, scored search, and CRUD.
 
-Implements the full JAKE contract: search_v2, search_ids, get, plus basic
+Implements the full search_v2 contract: search_v2, search_ids, get, plus basic
 CRUD operations as an Amplifier Tool.  Registers the ``memory.store``
 capability so hooks-memory-inject auto-discovers it.
 """
@@ -71,7 +71,7 @@ _DEFAULT_TRUST = 0.5
 _DEFAULT_SENSITIVITY = "public"
 
 # ---------------------------------------------------------------------------
-# Scoring helpers (mirrors hooks-memory-inject JAKE logic)
+# Scoring helpers (mirrors hooks-memory-inject logic)
 # ---------------------------------------------------------------------------
 
 
@@ -325,7 +325,7 @@ class MemoryStore:
         finally:
             conn.close()
 
-    # -- search (JAKE contract) --------------------------------------------
+    # -- search (scored contract) --------------------------------------------
 
     def _search_fts(self, query: str, limit: int) -> list[tuple[dict[str, Any], float]]:
         """Search via FTS5 with bm25 scoring."""
@@ -424,7 +424,7 @@ class MemoryStore:
         scoring: dict[str, Any] | None = None,
         gating: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """JAKE contract: scored search with sensitivity gating."""
+        """Scored search with sensitivity gating."""
         s = scoring or {}
         g = gating or {}
         cfg = _ScoringConfig(
@@ -452,7 +452,7 @@ class MemoryStore:
         scoring: dict[str, Any] | None = None,
         gating: dict[str, Any] | None = None,
     ) -> list[str]:
-        """JAKE contract: return matching memory ids."""
+        """Return matching memory ids."""
         results = self.search_v2(
             prompt,
             limit=candidate_limit,

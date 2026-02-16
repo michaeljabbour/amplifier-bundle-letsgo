@@ -12,7 +12,7 @@ hooks:
       max_injection_tokens: 2000
       enabled: true
 
-      # Relevance scoring (JAKE: computed, not assumed)
+      # Relevance scoring (computed, not assumed)
       min_score: 0.35
       half_life_days: 21.0
       weights:

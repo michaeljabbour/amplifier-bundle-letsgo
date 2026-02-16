@@ -1,7 +1,7 @@
 """Tests for hooks-memory-inject module.
 
 Exercises the MemoryInjector handler, SQLite search paths, context formatting,
-config handling, mount registration, and JAKE governor. No running Amplifier
+config handling, mount registration, and memory governor. No running Amplifier
 session required.
 """
 

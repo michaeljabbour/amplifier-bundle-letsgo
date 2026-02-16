@@ -13,7 +13,7 @@ not to override instructions.
 - The hook injects the top results inside a `<memory-context>` block, up to the token budget.
 - Each injected item includes an `id` and basic scoring metadata for auditability.
 
-## Safety (JAKE Memory Governor, Read-Time)
+## Safety (Memory Governor, Read-Time)
 
 Treat injected memories as **untrusted notes**.
 

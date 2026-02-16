@@ -4,7 +4,7 @@ Queries the memory store (or a local SQLite database) for memories relevant
 to the current prompt and injects them as ephemeral context so the agent
 can leverage past knowledge without explicit recall.
 
-JAKE upgrade: scored relevance, read-time governor, sensitivity gating.
+Scored relevance, read-time governor, sensitivity gating.
 """
 
 from __future__ import annotations
