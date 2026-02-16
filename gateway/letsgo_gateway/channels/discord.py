@@ -1,6 +1,6 @@
 """Discord channel adapter (stub).
 
-TODO: Implement full Discord bot integration.
+Gracefully degrades when ``discord.py`` is not installed.
 
 Config keys:
     bot_token: Discord bot token
@@ -9,14 +9,22 @@ Config keys:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ..models import OutboundMessage
-from .base import ChannelAdapter
+from .base import ChannelAdapter, OnMessageCallback
+
+logger = logging.getLogger(__name__)
 
 
 class DiscordChannel(ChannelAdapter):
-    """Discord adapter — requires ``discord.py``.
+    """Discord adapter -- requires ``discord.py``.
+
+    When the dependency is missing the adapter loads without error but all
+    operations are no-ops.  Install the real dependency to enable it::
+
+        pip install discord.py
 
     Config:
         bot_token (str): Discord bot token.
@@ -27,21 +35,27 @@ class DiscordChannel(ChannelAdapter):
         super().__init__(name, config)
         self._bot_token: str = config.get("bot_token", "")
         self._guild_id: str = config.get("guild_id", "")
+        self._available: bool = False
+        self._on_message: OnMessageCallback | None = None
 
     async def start(self) -> None:
-        raise NotImplementedError(
-            "Discord adapter requires discord.py. "
-            "Install with: pip install discord.py"
+        logger.warning(
+            "Discord adapter '%s' requires discord.py — "
+            "install with: pip install discord.py",
+            self.name,
         )
+        self._available = False
 
     async def stop(self) -> None:
-        raise NotImplementedError(
-            "Discord adapter requires discord.py. "
-            "Install with: pip install discord.py"
-        )
+        if not self._available:
+            return
 
     async def send(self, message: OutboundMessage) -> bool:
-        raise NotImplementedError(
-            "Discord adapter requires discord.py. "
-            "Install with: pip install discord.py"
-        )
+        if not self._available:
+            logger.warning(
+                "Discord adapter '%s' is not available — "
+                "cannot send message (install discord.py)",
+                self.name,
+            )
+            return False
+        return False

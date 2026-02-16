@@ -71,14 +71,14 @@ def test_close_stale_sessions():
     assert "webhook:stale" not in router.active_sessions
 
 
-def test_dm_scoping_isolation():
+async def test_dm_scoping_isolation():
     """Different senders get independent sessions."""
     router = SessionRouter()
     msg_a = _make_message(sender_id="alice")
     msg_b = _make_message(sender_id="bob")
 
-    resp_a = router.route_message(msg_a)
-    resp_b = router.route_message(msg_b)
+    resp_a = await router.route_message(msg_a)
+    resp_b = await router.route_message(msg_b)
 
     assert resp_a != resp_b
     assert len(router.active_sessions) == 2

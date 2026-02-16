@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -16,10 +17,10 @@ def parse_cron_expression(expr: str) -> dict[str, Any]:
     """Parse a simple cron expression into a schedule descriptor.
 
     Supports:
-        ``@hourly``   — minute 0 every hour
-        ``@daily``    — 00:00 every day
-        ``@weekly``   — 00:00 every Monday
-        ``MM HH * * *`` — specific minute and hour every day
+        ``@hourly``   -- minute 0 every hour
+        ``@daily``    -- 00:00 every day
+        ``@weekly``   -- 00:00 every Monday
+        ``MM HH * * *`` -- specific minute and hour every day
 
     Returns a dict with ``minute``, ``hour``, and ``weekday`` (0=Mon, None=any).
     """
@@ -87,7 +88,11 @@ class CronJob:
 class CronScheduler:
     """Simple cron-like scheduler for gateway recipe jobs."""
 
-    def __init__(self, config: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        config: dict[str, Any] | None = None,
+        job_executor: Callable[[str, dict, dict], Awaitable[dict]] | None = None,
+    ) -> None:
         config = config or {}
         default_log = Path("~/.letsgo/gateway/cron.jsonl").expanduser()
         self._log_path = Path(config.get("log_path", str(default_log)))
@@ -97,6 +102,7 @@ class CronScheduler:
         self._jobs: dict[str, CronJob] = {}
         self._task: asyncio.Task[None] | None = None
         self._running = False
+        self._job_executor = job_executor
 
         # Load initial jobs from config
         for job_def in config.get("jobs", []):
@@ -150,7 +156,7 @@ class CronScheduler:
         return dict(self._automation_profile)
 
     async def _run_loop(self) -> None:
-        """Main scheduler loop — checks jobs every 60 seconds."""
+        """Main scheduler loop -- checks jobs every 60 seconds."""
         while self._running:
             now = datetime.now(timezone.utc)
             for job in list(self._jobs.values()):
@@ -171,8 +177,12 @@ class CronScheduler:
                 break
 
     async def _execute_job(self, job: CronJob, now: datetime) -> None:
-        """Execute a cron job (stub: logs the execution)."""
-        entry = {
+        """Execute a cron job.
+
+        If a *job_executor* callback is configured, delegates to the real
+        recipe runner.  Otherwise falls back to the stub log-only behaviour.
+        """
+        entry: dict[str, Any] = {
             "timestamp": now.isoformat(),
             "job": job.name,
             "recipe": job.recipe_path,
@@ -181,6 +191,31 @@ class CronScheduler:
             "status": "triggered",
         }
         logger.info("Cron job '%s' triggered at %s", job.name, now.isoformat())
+
+        if self._job_executor is not None:
+            try:
+                result = await self._job_executor(
+                    job.recipe_path,
+                    job.context,
+                    self._automation_profile,
+                )
+                status = result.get("status", "completed")
+                if status in ("failed", "error"):
+                    entry["status"] = "failed"
+                    logger.warning(
+                        "Cron job '%s' failed: %s",
+                        job.name,
+                        result.get("error", "unknown"),
+                    )
+                else:
+                    entry["status"] = "completed"
+                    logger.info("Cron job '%s' completed: %s", job.name, status)
+                entry["result"] = result
+            except Exception as e:
+                entry["status"] = "error"
+                entry["error"] = str(e)
+                logger.exception("Cron job '%s' raised an exception", job.name)
+
         self._append_log(entry)
 
     def _append_log(self, entry: dict[str, Any]) -> None:

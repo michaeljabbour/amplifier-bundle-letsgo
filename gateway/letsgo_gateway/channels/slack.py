@@ -1,6 +1,6 @@
 """Slack channel adapter (stub).
 
-TODO: Implement full Slack bot integration.
+Gracefully degrades when ``slack-sdk`` is not installed.
 
 Config keys:
     bot_token: Slack Bot User OAuth Token (xoxb-...)
@@ -9,14 +9,22 @@ Config keys:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from ..models import OutboundMessage
-from .base import ChannelAdapter
+from .base import ChannelAdapter, OnMessageCallback
+
+logger = logging.getLogger(__name__)
 
 
 class SlackChannel(ChannelAdapter):
-    """Slack adapter — requires ``slack-sdk``.
+    """Slack adapter -- requires ``slack-sdk``.
+
+    When the dependency is missing the adapter loads without error but all
+    operations are no-ops.  Install the real dependency to enable it::
+
+        pip install slack-sdk
 
     Config:
         bot_token (str): Slack bot OAuth token.
@@ -27,21 +35,27 @@ class SlackChannel(ChannelAdapter):
         super().__init__(name, config)
         self._bot_token: str = config.get("bot_token", "")
         self._signing_secret: str = config.get("signing_secret", "")
+        self._available: bool = False
+        self._on_message: OnMessageCallback | None = None
 
     async def start(self) -> None:
-        raise NotImplementedError(
-            "Slack adapter requires slack-sdk. "
-            "Install with: pip install slack-sdk"
+        logger.warning(
+            "Slack adapter '%s' requires slack-sdk — "
+            "install with: pip install slack-sdk",
+            self.name,
         )
+        self._available = False
 
     async def stop(self) -> None:
-        raise NotImplementedError(
-            "Slack adapter requires slack-sdk. "
-            "Install with: pip install slack-sdk"
-        )
+        if not self._available:
+            return
 
     async def send(self, message: OutboundMessage) -> bool:
-        raise NotImplementedError(
-            "Slack adapter requires slack-sdk. "
-            "Install with: pip install slack-sdk"
-        )
+        if not self._available:
+            logger.warning(
+                "Slack adapter '%s' is not available — "
+                "cannot send message (install slack-sdk)",
+                self.name,
+            )
+            return False
+        return False

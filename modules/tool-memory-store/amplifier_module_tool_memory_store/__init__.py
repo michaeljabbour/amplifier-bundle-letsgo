@@ -1,4 +1,5 @@
-"""Durable memory store with SQLite, FTS5, scored search, CRUD, dedup, and TTL.
+"""Durable memory store with SQLite, FTS5, scored search, CRUD, dedup, TTL,
+structured fact store, and memory summarization.
 
 Implements the full search_v2 contract: search_v2, search_ids, get, plus basic
 CRUD operations as an Amplifier Tool.  Registers the ``memory.store``
@@ -9,6 +10,8 @@ Hardening features:
 * **Deduplication** — content-hash check before insert to prevent duplicates.
 * **TTL / expiry** — optional ``expires_at`` column; expired memories are
   excluded from search and periodically purged by ``purge_expired()``.
+* **Fact store** — subject/predicate/object triples with confidence scoring.
+* **Summarization** — automatic condensation of old memories into summaries.
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ import sqlite3
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -207,6 +210,20 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
         VALUES('delete', old.rowid, old.content);
     INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
+
+CREATE TABLE IF NOT EXISTS facts (
+    id TEXT PRIMARY KEY,
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    object TEXT NOT NULL,
+    confidence REAL DEFAULT 1.0,
+    source_entry_id TEXT DEFAULT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (source_entry_id) REFERENCES memories(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject);
+CREATE INDEX IF NOT EXISTS idx_facts_predicate ON facts(predicate);
 """
 
 # Migration: add columns if upgrading from older schema
@@ -222,7 +239,8 @@ _MIGRATIONS_SQL = [
 
 
 class MemoryStore:
-    """SQLite-backed memory store with FTS5 search.
+    """SQLite-backed memory store with FTS5 search, fact store, and
+    summarization.
 
     Registered as the ``memory.store`` capability so hooks-memory-inject
     can call ``search_v2`` directly.
@@ -295,8 +313,6 @@ class MemoryStore:
 
         expires_at: str | None = None
         if ttl_days is not None and ttl_days > 0:
-            from datetime import timedelta
-
             expires_at = (
                 datetime.now(tz=timezone.utc) + timedelta(days=ttl_days)
             ).isoformat()
@@ -551,6 +567,203 @@ class MemoryStore:
         )
         return [r["id"] for r in results]
 
+    # -- Fact Store ----------------------------------------------------------
+
+    def store_fact(
+        self,
+        subject: str,
+        predicate: str,
+        object_value: str,
+        confidence: float = 1.0,
+        source_entry_id: str | None = None,
+    ) -> str:
+        """Store a subject/predicate/object fact triple.  Returns the fact id.
+
+        **Deduplication**: if an identical (subject, predicate, object) triple
+        already exists, its ``confidence`` and ``updated_at`` are updated
+        instead of creating a duplicate.
+        """
+        now = datetime.now(tz=timezone.utc).isoformat()
+        fact_id = uuid.uuid4().hex[:12]
+
+        with self._write_lock:
+            conn = self._rw_connection()
+            try:
+                existing = conn.execute(
+                    "SELECT id FROM facts "
+                    "WHERE subject = ? AND predicate = ? AND object = ?",
+                    (subject, predicate, object_value),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        "UPDATE facts SET confidence = ?, updated_at = ? "
+                        "WHERE id = ?",
+                        (confidence, now, existing["id"]),
+                    )
+                    conn.commit()
+                    logger.debug("Fact dedup hit: updated fact %s", existing["id"])
+                    return existing["id"]
+
+                conn.execute(
+                    "INSERT INTO facts (id, subject, predicate, object, "
+                    "confidence, source_entry_id, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        fact_id,
+                        subject,
+                        predicate,
+                        object_value,
+                        confidence,
+                        source_entry_id,
+                        now,
+                        now,
+                    ),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        return fact_id
+
+    def query_facts(
+        self,
+        subject: str | None = None,
+        predicate: str | None = None,
+        object_value: str | None = None,
+        min_confidence: float = 0.0,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Query facts by any combination of subject/predicate/object filters.
+
+        Returns a list of fact dicts.
+        """
+        conditions: list[str] = ["confidence >= ?"]
+        params: list[Any] = [min_confidence]
+
+        if subject is not None:
+            conditions.append("subject = ?")
+            params.append(subject)
+        if predicate is not None:
+            conditions.append("predicate = ?")
+            params.append(predicate)
+        if object_value is not None:
+            conditions.append("object = ?")
+            params.append(object_value)
+
+        where = " AND ".join(conditions)
+        params.append(limit)
+
+        conn = self._ro_connection()
+        try:
+            cursor = conn.execute(
+                f"SELECT * FROM facts WHERE {where} "  # noqa: S608
+                "ORDER BY updated_at DESC LIMIT ?",
+                params,
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def delete_fact(self, fact_id: str) -> bool:
+        """Delete a fact by id.  Returns True if deleted."""
+        with self._write_lock:
+            conn = self._rw_connection()
+            try:
+                cursor = conn.execute("DELETE FROM facts WHERE id = ?", (fact_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+            finally:
+                conn.close()
+
+    # -- Summarization -------------------------------------------------------
+
+    def summarize_old(
+        self,
+        max_age_days: float = 30,
+        max_memories: int = 5,
+    ) -> dict[str, Any]:
+        """Summarize old memories by category.
+
+        For each category that has more than *max_memories* entries older than
+        *max_age_days*, creates a single summary memory (concatenating first
+        100 chars of each, joined by ``"; "``), stores it with
+        ``category="{original}/summary"`` and ``importance=0.7``, then deletes
+        the originals.
+
+        Returns ``{"categories_summarized", "memories_archived",
+        "summaries_created"}``.
+        """
+        cutoff = (
+            datetime.now(tz=timezone.utc) - timedelta(days=max_age_days)
+        ).isoformat()
+
+        categories_summarized = 0
+        memories_archived = 0
+        summaries_created = 0
+
+        # Read old memories grouped by category
+        conn = self._ro_connection()
+        try:
+            rows = conn.execute(
+                "SELECT id, content, category FROM memories "
+                "WHERE updated_at < ? ORDER BY category, updated_at",
+                (cutoff,),
+            ).fetchall()
+        finally:
+            conn.close()
+
+        # Group by category
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            d = dict(row)
+            cat = d.get("category", "general")
+            groups.setdefault(cat, []).append(d)
+
+        # Summarize categories exceeding max_memories
+        for category, entries in groups.items():
+            if len(entries) <= max_memories:
+                continue
+
+            # Build summary content from previews
+            previews = [entry["content"][:100] for entry in entries]
+            summary_content = "; ".join(previews)
+
+            # Store summary as a new memory
+            self.store(
+                content=summary_content,
+                category=f"{category}/summary",
+                importance=0.7,
+            )
+            summaries_created += 1
+
+            # Delete the originals
+            original_ids = [entry["id"] for entry in entries]
+            with self._write_lock:
+                conn = self._rw_connection()
+                try:
+                    placeholders = ",".join("?" for _ in original_ids)
+                    conn.execute(
+                        f"DELETE FROM memories WHERE id IN ({placeholders})",  # noqa: S608
+                        original_ids,
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+
+            memories_archived += len(entries)
+            categories_summarized += 1
+
+        logger.info(
+            "Summarized %d categories, archived %d memories, created %d summaries",
+            categories_summarized,
+            memories_archived,
+            summaries_created,
+        )
+        return {
+            "categories_summarized": categories_summarized,
+            "memories_archived": memories_archived,
+            "summaries_created": summaries_created,
+        }
+
 
 # ---------------------------------------------------------------------------
 # MemoryTool — LLM-callable Amplifier Tool
@@ -570,8 +783,10 @@ class MemoryTool:
     @property
     def description(self) -> str:
         return (
-            "Persistent memory store. Store, search, list, get, and delete "
-            "memories across sessions."
+            "Persistent memory store with structured fact triples and "
+            "summarization. Store, search, list, get, and delete memories "
+            "across sessions. Store and query subject/predicate/object facts. "
+            "Summarize old memories to keep the store compact."
         )
 
     @property
@@ -589,6 +804,10 @@ class MemoryTool:
                         "get_memory",
                         "delete_memory",
                         "purge_expired",
+                        "store_fact",
+                        "query_facts",
+                        "delete_fact",
+                        "summarize_old",
                     ],
                     "description": "The operation to perform.",
                 },
@@ -624,7 +843,7 @@ class MemoryTool:
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Max results (for search/list).",
+                    "description": "Max results (for search/list/query_facts).",
                 },
                 "offset": {
                     "type": "integer",
@@ -639,6 +858,52 @@ class MemoryTool:
                     "description": (
                         "Time-to-live in days (for store_memory). "
                         "Memory expires and is excluded from search after this."
+                    ),
+                },
+                "subject": {
+                    "type": "string",
+                    "description": (
+                        "Fact subject (for store_fact / query_facts)."
+                    ),
+                },
+                "predicate": {
+                    "type": "string",
+                    "description": (
+                        "Fact predicate (for store_fact / query_facts)."
+                    ),
+                },
+                "object_value": {
+                    "type": "string",
+                    "description": (
+                        "Fact object value (for store_fact / query_facts)."
+                    ),
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": (
+                        "Confidence 0-1 for a fact triple (for store_fact)."
+                    ),
+                },
+                "source_entry_id": {
+                    "type": "string",
+                    "description": (
+                        "Memory id that sourced this fact (for store_fact)."
+                    ),
+                },
+                "fact_id": {
+                    "type": "string",
+                    "description": "Fact id (for delete_fact).",
+                },
+                "min_confidence": {
+                    "type": "number",
+                    "description": (
+                        "Minimum confidence filter (for query_facts)."
+                    ),
+                },
+                "max_age_days": {
+                    "type": "number",
+                    "description": (
+                        "Max age in days for summarize_old (default 30)."
                     ),
                 },
             },
@@ -723,6 +988,65 @@ class MemoryTool:
                 return ToolResult(
                     success=True, output={"purged": count}
                 )
+
+            # -- Fact operations ------------------------------------------------
+
+            if op == "store_fact":
+                subject = input.get("subject", "")
+                predicate = input.get("predicate", "")
+                obj = input.get("object_value", "")
+                if not subject or not predicate or not obj:
+                    return ToolResult(
+                        success=False,
+                        error={
+                            "message": (
+                                "subject, predicate, and object_value are "
+                                "required for store_fact"
+                            )
+                        },
+                    )
+                fact_id = self._store.store_fact(
+                    subject=subject,
+                    predicate=predicate,
+                    object_value=obj,
+                    confidence=float(input.get("confidence", 1.0)),
+                    source_entry_id=input.get("source_entry_id"),
+                )
+                return ToolResult(
+                    success=True, output={"fact_id": fact_id, "status": "stored"}
+                )
+
+            if op == "query_facts":
+                facts = self._store.query_facts(
+                    subject=input.get("subject"),
+                    predicate=input.get("predicate"),
+                    object_value=input.get("object_value"),
+                    min_confidence=float(input.get("min_confidence", 0.0)),
+                    limit=int(input.get("limit", 50)),
+                )
+                return ToolResult(
+                    success=True,
+                    output={"facts": facts, "count": len(facts)},
+                )
+
+            if op == "delete_fact":
+                fact_id = input.get("fact_id", "")
+                if not fact_id:
+                    return ToolResult(
+                        success=False,
+                        error={"message": "fact_id is required for delete_fact"},
+                    )
+                deleted = self._store.delete_fact(fact_id)
+                return ToolResult(success=True, output={"deleted": deleted})
+
+            # -- Summarization --------------------------------------------------
+
+            if op == "summarize_old":
+                stats = self._store.summarize_old(
+                    max_age_days=float(input.get("max_age_days", 30)),
+                    max_memories=int(input.get("limit", 5)),
+                )
+                return ToolResult(success=True, output=stats)
 
             return ToolResult(
                 success=False,
