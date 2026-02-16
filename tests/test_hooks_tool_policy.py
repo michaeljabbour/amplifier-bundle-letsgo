@@ -155,14 +155,73 @@ async def test_mount_registers_hook(mock_coordinator, tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_unlisted_tool_defaults_to_low(tmp_path: Path) -> None:
-    """Tools not in any risk list should default to low risk."""
+async def test_unlisted_tool_denied_by_default(tmp_path: Path) -> None:
+    """Tools not in any risk list are denied by the default-deny policy."""
     hook = _make_hook(tmp_path)
     data = _tool_event("tool-unknown-new-thing")
 
     result = await hook.handle("tool:pre", data)
 
+    assert result.action == "deny"
+    assert "denied" in (result.reason or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_default_action_ask_user(tmp_path: Path) -> None:
+    """With default_action='ask_user', unlisted tools trigger user approval."""
+    hook = _make_hook(tmp_path, default_action="ask_user")
+    data = _tool_event("tool-unknown-new-thing")
+
+    result = await hook.handle("tool:pre", data)
+
+    assert result.action == "ask_user"
+    assert result.approval_prompt is not None
+
+
+@pytest.mark.asyncio
+async def test_default_action_continue(tmp_path: Path) -> None:
+    """With default_action='continue', unlisted tools pass through."""
+    hook = _make_hook(tmp_path, default_action="continue")
+    data = _tool_event("tool-unknown-new-thing")
+
+    result = await hook.handle("tool:pre", data)
+
     assert result.action == "continue"
+
+
+@pytest.mark.asyncio
+async def test_automation_mode_blocks_secrets(tmp_path: Path) -> None:
+    """automation_mode=True blocks 'tool-secrets' and 'secrets'."""
+    hook = _make_hook(tmp_path, automation_mode=True)
+
+    for tool_name in ("tool-secrets", "secrets"):
+        data = _tool_event(tool_name)
+        result = await hook.handle("tool:pre", data)
+        assert result.action == "deny", f"{tool_name} should be denied"
+        assert "blocked" in (result.reason or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_automation_mode_denies_high_risk(tmp_path: Path) -> None:
+    """automation_mode=True denies high-risk tools outright (no ask_user)."""
+    hook = _make_hook(tmp_path, automation_mode=True, allowed_commands=[])
+    data = _tool_event("tool-bash", {"command": "rm -rf /"})
+
+    result = await hook.handle("tool:pre", data)
+
+    assert result.action == "deny"
+    assert "automation" in (result.reason or "").lower()
+
+
+@pytest.mark.asyncio
+async def test_automation_mode_denies_unlisted(tmp_path: Path) -> None:
+    """automation_mode=True denies unlisted tools regardless of default_action."""
+    hook = _make_hook(tmp_path, automation_mode=True, default_action="continue")
+    data = _tool_event("tool-unknown-new-thing")
+
+    result = await hook.handle("tool:pre", data)
+
+    assert result.action == "deny"
 
 
 @pytest.mark.asyncio

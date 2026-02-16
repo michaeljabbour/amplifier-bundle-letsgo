@@ -1,31 +1,30 @@
 bundle:
   name: behavior-security-policy
-  version: 1.0.0
-  description: Tool execution policy with risk classification and approval gates
+  version: 1.1.0
+  description: Tool execution policy with default-deny, risk classification, approval gates, and automation mode
 
 hooks:
   - module: hooks-tool-policy
     source: ../modules/hooks-tool-policy
     config:
-      risk_classification:
-        high:
-          - tool-bash
-          - tool-write-file
-        medium:
-          - tool-edit-file
-          - tool-filesystem
-        low:
-          - tool-search
-          - tool-todo
-          - tool-glob
-          - tool-grep
-      approval:
-        required_for:
-          - high
-        timeout_seconds: 300
-        default_action: deny
-      audit:
-        log_path: ~/.letsgo/logs/tool-policy-audit.jsonl
+      blocked_tools: []
+      high_risk_tools:
+        - tool-bash
+        - tool-write-file
+      medium_risk_tools:
+        - tool-edit-file
+        - tool-filesystem
+      low_risk_tools:
+        - tool-search
+        - tool-todo
+        - tool-glob
+        - tool-grep
+      default_action: deny
+      automation_mode: false
+      allowed_commands: []
+      allowed_write_paths: []
+      sandbox_mode: enforce
+      audit_log_path: ~/.letsgo/logs/tool-policy-audit.jsonl
 
 context:
   include:

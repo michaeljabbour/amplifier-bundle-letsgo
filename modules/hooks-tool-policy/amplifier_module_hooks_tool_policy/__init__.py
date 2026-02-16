@@ -5,16 +5,21 @@ any tool executes.  Decisions are based on four risk tiers (blocked / high /
 medium / low), two allowlist mechanisms (command-prefix and path-prefix), an
 optional sandbox rewrite for bash commands, and a JSONL audit trail.
 
+**Default-deny invariant**: unlisted tools are denied by default.  To allow a
+new tool, it must be explicitly added to a risk tier.
+
 Configuration keys (all optional, sane defaults provided)::
 
     high_risk_tools      - list[str]  (default: ["tool-bash"])
     medium_risk_tools    - list[str]  (default: ["tool-filesystem"])
     low_risk_tools       - list[str]  (default: [])
     blocked_tools        - list[str]  (default: [])
+    default_action       - "deny" | "ask_user" | "continue"  (default: "deny")
     allowed_commands     - list[str]  command prefixes that downgrade bash → low
     allowed_write_paths  - list[str]  path prefixes that downgrade fs writes → low
     sandbox_mode         - "enforce" | "off"  (default: "enforce")
     audit_log_path       - str  (default: "~/.letsgo/logs/tool-policy-audit.jsonl")
+    automation_mode      - bool  (default: false) restricted profile for scheduled runs
 """
 
 from __future__ import annotations
@@ -49,6 +54,14 @@ class ToolPolicyHook:
         )
         self.low_risk_tools: list[str] = config.get("low_risk_tools", [])
 
+        # Default action for unlisted tools: "deny" | "ask_user" | "continue"
+        self.default_action: str = config.get("default_action", "deny")
+
+        # Automation mode — restricted profile for scheduled/unattended runs.
+        # When True: secrets tool blocked, all high-risk → deny (no ask_user),
+        # unknown tools → deny regardless of default_action.
+        self.automation_mode: bool = config.get("automation_mode", False)
+
         # Allowlists
         self.allowed_commands: list[str] = config.get("allowed_commands", [])
         self.allowed_write_paths: list[str] = config.get("allowed_write_paths", [])
@@ -61,14 +74,31 @@ class ToolPolicyHook:
             config.get("audit_log_path", "~/.letsgo/logs/tool-policy-audit.jsonl")
         ).expanduser()
 
+        # Build the set of all explicitly classified tools for fast lookup
+        self._classified_tools: frozenset[str] = frozenset(
+            self.blocked_tools
+            + self.high_risk_tools
+            + self.medium_risk_tools
+            + self.low_risk_tools
+        )
+
     # -- risk classification ------------------------------------------------
 
     def classify_risk(self, tool_name: str) -> str:
         """Return the base risk tier for *tool_name* from the configured lists.
 
         Evaluation order is blocked → high → medium → low.  Unlisted tools
-        default to ``"low"``.
+        are classified according to ``default_action``: ``"deny"`` maps to
+        ``"unclassified"`` (which the handler treats as deny), ``"ask_user"``
+        maps to ``"high"``, and ``"continue"`` maps to ``"low"``.
+
+        In **automation mode**, secrets tools are always blocked and unlisted
+        tools are always denied regardless of ``default_action``.
         """
+        # Automation mode: block secrets tool entirely
+        if self.automation_mode and tool_name in ("tool-secrets", "secrets"):
+            return "blocked"
+
         if tool_name in self.blocked_tools:
             return "blocked"
         if tool_name in self.high_risk_tools:
@@ -77,8 +107,17 @@ class ToolPolicyHook:
             return "medium"
         if tool_name in self.low_risk_tools:
             return "low"
-        # Unlisted tools are treated as low risk
-        return "low"
+
+        # Unlisted tool — default-deny invariant
+        if self.automation_mode:
+            return "unclassified"
+
+        if self.default_action == "ask_user":
+            return "high"
+        if self.default_action == "continue":
+            return "low"
+        # default_action == "deny" or anything else → unclassified
+        return "unclassified"
 
     # -- allowlist checks ---------------------------------------------------
 
@@ -223,25 +262,43 @@ class ToolPolicyHook:
         result: HookResult
         reason: str
 
-        if risk_level == "blocked":
+        if risk_level == "unclassified":
+            reason = (
+                f"Tool '{tool_name}' is not in any risk classification — "
+                "denied by default-deny policy"
+            )
+            result = HookResult(action="deny", reason=reason)
+
+        elif risk_level == "blocked":
             reason = f"Tool '{tool_name}' is blocked by security policy"
             result = HookResult(action="deny", reason=reason)
 
         elif risk_level == "high":
-            command_preview = (
-                _truncated_command(tool_input) if tool_name == "tool-bash" else ""
-            )
-            prompt_detail = f": {command_preview}" if command_preview else ""
-            reason = f"High-risk tool '{tool_name}' requires user approval"
-            result = HookResult(
-                action="ask_user",
-                approval_prompt=(
-                    f"Tool '{tool_name}' is classified as HIGH risk{prompt_detail}.\n"
-                    "Allow this operation?"
-                ),
-                approval_timeout=120.0,
-                approval_default="deny",
-            )
+            # In automation mode, high-risk tools are denied outright
+            # (no user present to approve).
+            if self.automation_mode:
+                reason = (
+                    f"High-risk tool '{tool_name}' denied — "
+                    "automation mode does not permit interactive approval"
+                )
+                result = HookResult(action="deny", reason=reason)
+            else:
+                command_preview = (
+                    _truncated_command(tool_input)
+                    if tool_name == "tool-bash"
+                    else ""
+                )
+                prompt_detail = f": {command_preview}" if command_preview else ""
+                reason = f"High-risk tool '{tool_name}' requires user approval"
+                result = HookResult(
+                    action="ask_user",
+                    approval_prompt=(
+                        f"Tool '{tool_name}' is classified as HIGH risk"
+                        f"{prompt_detail}.\nAllow this operation?"
+                    ),
+                    approval_timeout=120.0,
+                    approval_default="deny",
+                )
 
         elif risk_level == "medium":
             summary = _summarize_operation(tool_name, tool_input)
@@ -272,7 +329,6 @@ class ToolPolicyHook:
                 # Preserve any informational user_message from the risk tier
                 user_message=result.user_message,
                 user_message_level=result.user_message_level,
-                user_message_source=result.user_message_source,
             )
 
         # 5. Audit trail
@@ -339,8 +395,11 @@ async def mount(coordinator, config=None):  # noqa: ANN001
     )
 
     logger.info(
-        "hooks-tool-policy mounted  sandbox=%s  blocked=%s  high=%s  medium=%s",
+        "hooks-tool-policy mounted  sandbox=%s  default=%s  automation=%s  "
+        "blocked=%s  high=%s  medium=%s",
         hook.sandbox_mode,
+        hook.default_action,
+        hook.automation_mode,
         hook.blocked_tools,
         hook.high_risk_tools,
         hook.medium_risk_tools,

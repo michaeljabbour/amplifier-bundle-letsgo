@@ -98,7 +98,6 @@ class TelemetryCollector:
             action="continue",
             user_message=msg,
             user_message_level="info",
-            user_message_source="telemetry",
         )
 
     async def on_tool_pre(self, event: str, data: dict[str, Any]) -> HookResult:

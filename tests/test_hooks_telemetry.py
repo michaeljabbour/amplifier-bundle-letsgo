@@ -168,7 +168,7 @@ async def test_session_end_includes_summary_message(tmp_path: Path) -> None:
 
     assert result.action == "continue"
     assert result.user_message is not None
-    assert "telemetry" in (result.user_message_source or "").lower()
+    assert "telemetry" in result.user_message.lower()
 
 
 @pytest.mark.asyncio

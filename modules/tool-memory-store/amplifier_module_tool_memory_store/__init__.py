@@ -1,12 +1,19 @@
-"""Durable memory store with SQLite, FTS5, scored search, and CRUD.
+"""Durable memory store with SQLite, FTS5, scored search, CRUD, dedup, and TTL.
 
 Implements the full search_v2 contract: search_v2, search_ids, get, plus basic
 CRUD operations as an Amplifier Tool.  Registers the ``memory.store``
 capability so hooks-memory-inject auto-discovers it.
+
+Hardening features:
+
+* **Deduplication** — content-hash check before insert to prevent duplicates.
+* **TTL / expiry** — optional ``expires_at`` column; expired memories are
+  excluded from search and periodically purged by ``purge_expired()``.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sqlite3
 import threading
@@ -15,6 +22,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
+
+from amplifier_core.models import ToolResult  # type: ignore[import-not-found]
 
 __amplifier_module_type__ = "tool"
 
@@ -167,14 +176,19 @@ _SCHEMA_SQL = """\
 CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,
     content TEXT NOT NULL,
+    content_hash TEXT NOT NULL DEFAULT '',
     category TEXT DEFAULT 'general',
     importance REAL DEFAULT 0.5,
     trust REAL DEFAULT 0.5,
     sensitivity TEXT DEFAULT 'public',
     tags TEXT DEFAULT '',
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    expires_at TEXT DEFAULT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
+CREATE INDEX IF NOT EXISTS idx_memories_expires_at ON memories(expires_at);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
 USING fts5(content, content='memories', content_rowid='rowid');
@@ -194,6 +208,12 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
     INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
 END;
 """
+
+# Migration: add columns if upgrading from older schema
+_MIGRATIONS_SQL = [
+    "ALTER TABLE memories ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE memories ADD COLUMN expires_at TEXT DEFAULT NULL",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +240,12 @@ class MemoryStore:
         conn = sqlite3.connect(str(self._db_path))
         try:
             conn.executescript(_SCHEMA_SQL)
+            # Apply migrations for existing databases
+            for sql in _MIGRATIONS_SQL:
+                try:
+                    conn.execute(sql)
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             conn.commit()
         finally:
             conn.close()
@@ -238,6 +264,11 @@ class MemoryStore:
 
     # -- CRUD ---------------------------------------------------------------
 
+    @staticmethod
+    def _content_hash(content: str) -> str:
+        """SHA-256 hex digest of *content* for deduplication."""
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
     def store(
         self,
         content: str,
@@ -246,21 +277,55 @@ class MemoryStore:
         trust: float = 0.5,
         sensitivity: str = "public",
         tags: list[str] | str | None = None,
+        ttl_days: float | None = None,
     ) -> str:
-        """Store a new memory. Returns the new id."""
+        """Store a new memory. Returns the new id.
+
+        **Deduplication**: if a memory with identical content already exists,
+        its ``updated_at`` is refreshed and its id is returned instead of
+        creating a duplicate.
+
+        **TTL**: if *ttl_days* is provided, ``expires_at`` is set.  Expired
+        memories are excluded from search and purged by ``purge_expired()``.
+        """
+        chash = self._content_hash(content)
         mem_id = uuid.uuid4().hex[:12]
         now = datetime.now(tz=timezone.utc).isoformat()
         tag_str = ",".join(tags) if isinstance(tags, list) else (tags or "")
+
+        expires_at: str | None = None
+        if ttl_days is not None and ttl_days > 0:
+            from datetime import timedelta
+
+            expires_at = (
+                datetime.now(tz=timezone.utc) + timedelta(days=ttl_days)
+            ).isoformat()
+
         with self._write_lock:
             conn = self._rw_connection()
             try:
+                # Dedup check
+                existing = conn.execute(
+                    "SELECT id FROM memories WHERE content_hash = ?", (chash,)
+                ).fetchone()
+                if existing:
+                    # Refresh the existing memory's timestamp
+                    conn.execute(
+                        "UPDATE memories SET updated_at = ? WHERE id = ?",
+                        (now, existing["id"]),
+                    )
+                    conn.commit()
+                    logger.debug("Dedup hit: refreshed memory %s", existing["id"])
+                    return existing["id"]
+
                 conn.execute(
-                    "INSERT INTO memories (id, content, category, importance, trust, "
-                    "sensitivity, tags, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO memories (id, content, content_hash, category, "
+                    "importance, trust, sensitivity, tags, created_at, updated_at, "
+                    "expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         mem_id,
                         content,
+                        chash,
                         category,
                         importance,
                         trust,
@@ -268,12 +333,32 @@ class MemoryStore:
                         tag_str,
                         now,
                         now,
+                        expires_at,
                     ),
                 )
                 conn.commit()
             finally:
                 conn.close()
         return mem_id
+
+    def purge_expired(self) -> int:
+        """Delete all memories whose ``expires_at`` has passed.  Returns count."""
+        now = datetime.now(tz=timezone.utc).isoformat()
+        with self._write_lock:
+            conn = self._rw_connection()
+            try:
+                cursor = conn.execute(
+                    "DELETE FROM memories WHERE expires_at IS NOT NULL "
+                    "AND expires_at < ?",
+                    (now,),
+                )
+                conn.commit()
+                deleted = cursor.rowcount
+            finally:
+                conn.close()
+        if deleted:
+            logger.info("Purged %d expired memories", deleted)
+        return deleted
 
     def get(self, ids: Sequence[str]) -> list[dict[str, Any]]:
         """Get memories by id(s)."""
@@ -328,16 +413,18 @@ class MemoryStore:
     # -- search (scored contract) --------------------------------------------
 
     def _search_fts(self, query: str, limit: int) -> list[tuple[dict[str, Any], float]]:
-        """Search via FTS5 with bm25 scoring."""
+        """Search via FTS5 with bm25 scoring.  Excludes expired memories."""
         conn = self._ro_connection()
+        now = datetime.now(tz=timezone.utc).isoformat()
         try:
             cursor = conn.execute(
                 "SELECT m.*, bm25(memories_fts) AS _bm25 "
                 "FROM memories_fts f "
                 "JOIN memories m ON m.rowid = f.rowid "
                 "WHERE memories_fts MATCH ? "
+                "AND (m.expires_at IS NULL OR m.expires_at > ?) "
                 "ORDER BY rank LIMIT ?",
-                (query, limit),
+                (query, now, limit),
             )
             results: list[tuple[dict[str, Any], float]] = []
             for row in cursor.fetchall():
@@ -352,16 +439,18 @@ class MemoryStore:
     def _search_like(
         self, keywords: list[str], limit: int
     ) -> list[tuple[dict[str, Any], float]]:
-        """Fallback: LIKE search with keyword hit counting."""
+        """Fallback: LIKE search with keyword hit counting.  Excludes expired."""
         if not keywords:
             return []
         conn = self._ro_connection()
+        now = datetime.now(tz=timezone.utc).isoformat()
         try:
             conditions = " OR ".join(["content LIKE ?"] * len(keywords))
             params: list[Any] = [f"%{kw}%" for kw in keywords]
-            params.append(limit)
+            params.extend([now, limit])
             cursor = conn.execute(
                 f"SELECT * FROM memories WHERE ({conditions}) "  # noqa: S608
+                "AND (expires_at IS NULL OR expires_at > ?) "
                 "ORDER BY updated_at DESC LIMIT ?",
                 params,
             )
@@ -499,6 +588,7 @@ class MemoryTool:
                         "list_memories",
                         "get_memory",
                         "delete_memory",
+                        "purge_expired",
                     ],
                     "description": "The operation to perform.",
                 },
@@ -544,60 +634,106 @@ class MemoryTool:
                     "type": "number",
                     "description": "Minimum score threshold (for search_memories).",
                 },
+                "ttl_days": {
+                    "type": "number",
+                    "description": (
+                        "Time-to-live in days (for store_memory). "
+                        "Memory expires and is excluded from search after this."
+                    ),
+                },
             },
         }
 
-    async def execute(self, input: dict[str, Any]) -> dict[str, Any]:  # noqa: A002
-        """Execute a memory operation."""
+    async def execute(self, input: dict[str, Any]) -> ToolResult:  # noqa: A002
+        """Execute a memory operation.  Returns ``ToolResult`` per protocol."""
         op = input.get("operation", "")
 
-        if op == "store_memory":
-            content = input.get("content", "")
-            if not content:
-                return {"error": "content is required for store_memory"}
-            mem_id = self._store.store(
-                content=content,
-                category=input.get("category", "general"),
-                importance=float(input.get("importance", 0.5)),
-                sensitivity=input.get("sensitivity", "public"),
-                tags=input.get("tags"),
+        try:
+            if op == "store_memory":
+                content = input.get("content", "")
+                if not content:
+                    return ToolResult(
+                        success=False,
+                        error={"message": "content is required for store_memory"},
+                    )
+                mem_id = self._store.store(
+                    content=content,
+                    category=input.get("category", "general"),
+                    importance=float(input.get("importance", 0.5)),
+                    sensitivity=input.get("sensitivity", "public"),
+                    tags=input.get("tags"),
+                    ttl_days=input.get("ttl_days"),
+                )
+                return ToolResult(
+                    success=True, output={"id": mem_id, "status": "stored"}
+                )
+
+            if op == "search_memories":
+                query = input.get("query", "")
+                if not query:
+                    return ToolResult(
+                        success=False,
+                        error={"message": "query is required for search_memories"},
+                    )
+                limit = int(input.get("limit", 10))
+                min_score = float(input.get("min_score", 0.0))
+                scoring = {"min_score": min_score} if min_score else None
+                results = self._store.search_v2(query, limit=limit, scoring=scoring)
+                return ToolResult(
+                    success=True,
+                    output={"results": results, "count": len(results)},
+                )
+
+            if op == "list_memories":
+                limit = int(input.get("limit", 100))
+                offset = int(input.get("offset", 0))
+                memories = self._store.list_all(limit=limit, offset=offset)
+                total = self._store.count()
+                return ToolResult(
+                    success=True, output={"memories": memories, "total": total}
+                )
+
+            if op == "get_memory":
+                mem_id = input.get("id", "")
+                if not mem_id:
+                    return ToolResult(
+                        success=False,
+                        error={"message": "id is required for get_memory"},
+                    )
+                records = self._store.get([mem_id])
+                if not records:
+                    return ToolResult(
+                        success=False,
+                        error={"message": f"memory {mem_id} not found"},
+                    )
+                return ToolResult(success=True, output=records[0])
+
+            if op == "delete_memory":
+                mem_id = input.get("id", "")
+                if not mem_id:
+                    return ToolResult(
+                        success=False,
+                        error={"message": "id is required for delete_memory"},
+                    )
+                deleted = self._store.delete(mem_id)
+                return ToolResult(success=True, output={"deleted": deleted})
+
+            if op == "purge_expired":
+                count = self._store.purge_expired()
+                return ToolResult(
+                    success=True, output={"purged": count}
+                )
+
+            return ToolResult(
+                success=False,
+                error={"message": f"unknown operation: {op}"},
             )
-            return {"id": mem_id, "status": "stored"}
-
-        if op == "search_memories":
-            query = input.get("query", "")
-            if not query:
-                return {"error": "query is required for search_memories"}
-            limit = int(input.get("limit", 10))
-            min_score = float(input.get("min_score", 0.0))
-            scoring = {"min_score": min_score} if min_score else None
-            results = self._store.search_v2(query, limit=limit, scoring=scoring)
-            return {"results": results, "count": len(results)}
-
-        if op == "list_memories":
-            limit = int(input.get("limit", 100))
-            offset = int(input.get("offset", 0))
-            memories = self._store.list_all(limit=limit, offset=offset)
-            total = self._store.count()
-            return {"memories": memories, "total": total}
-
-        if op == "get_memory":
-            mem_id = input.get("id", "")
-            if not mem_id:
-                return {"error": "id is required for get_memory"}
-            records = self._store.get([mem_id])
-            if not records:
-                return {"error": f"memory {mem_id} not found"}
-            return records[0]
-
-        if op == "delete_memory":
-            mem_id = input.get("id", "")
-            if not mem_id:
-                return {"error": "id is required for delete_memory"}
-            deleted = self._store.delete(mem_id)
-            return {"deleted": deleted}
-
-        return {"error": f"unknown operation: {op}"}
+        except Exception:
+            logger.exception("Unexpected error in memory tool")
+            return ToolResult(
+                success=False,
+                error={"message": "An internal error occurred. Check logs."},
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -5,10 +5,15 @@ API keys, tokens, passwords, and other credentials.  Every operation is
 recorded in an append-only JSONL audit log.  Secret values are **never**
 written to logs, telemetry, or listing output.
 
+**Handle-based access**: ``get_secret`` returns an opaque, short-lived handle
+(not plaintext).  Handles are redeemable only via the ``secrets.redeem``
+capability — intended for use inside sandbox execution.  This prevents secret
+values from ever appearing in model context.
+
 Encryption pipeline
 -------------------
 master passphrase  ->  PBKDF2-HMAC-SHA256 (480 000 iterations)  ->  Fernet key
-                       fixed salt (module-scoped)
+                       per-installation random salt
 
 Storage format
 --------------
@@ -34,6 +39,8 @@ import logging
 import os
 import secrets as stdlib_secrets
 import tempfile
+import threading
+import time
 from base64 import urlsafe_b64encode
 from datetime import datetime, timezone
 from pathlib import Path
@@ -64,17 +71,74 @@ DEFAULT_PASSPHRASE_ENV = "LETSGO_SECRETS_KEY"
 DEFAULT_STORAGE_PATH = "~/.letsgo/secrets.enc"
 DEFAULT_AUDIT_LOG = "~/.letsgo/logs/secrets-audit.jsonl"
 DEFAULT_KEY_PATH = "~/.letsgo/secrets.key"
+DEFAULT_SALT_PATH = "~/.letsgo/secrets.salt"
 
 PBKDF2_ITERATIONS = 480_000
-KDF_SALT = b"amplifier-tool-secrets-v1"  # fixed; passphrase provides entropy
+_FALLBACK_SALT = b"amplifier-tool-secrets-v1"  # used only if salt file unwritable
+_SALT_LENGTH = 32  # 256-bit random salt
 
 _DIR_PERMS = 0o700
 _FILE_PERMS = 0o600
+
+# Handle defaults
+_HANDLE_TTL_SECONDS = 300  # 5 minutes
+_HANDLE_PREFIX = "sec_"
 
 
 # ---------------------------------------------------------------------------
 # Encrypted store
 # ---------------------------------------------------------------------------
+
+
+class SecretHandleRegistry:
+    """In-memory registry of short-lived, opaque secret handles.
+
+    Handles are created by ``get_secret`` and redeemed (exactly once) via
+    the ``secrets.redeem`` capability.  They never appear in model context —
+    the model only sees the handle string ``sec_<hex>``.
+    """
+
+    def __init__(self, ttl_seconds: int = _HANDLE_TTL_SECONDS) -> None:
+        self._ttl = ttl_seconds
+        self._lock = threading.Lock()
+        # handle_id → (secret_name, plaintext, created_at)
+        self._handles: dict[str, tuple[str, str, float]] = {}
+
+    def create(self, secret_name: str, plaintext: str) -> str:
+        """Issue a new handle for *plaintext*.  Returns the handle id."""
+        handle_id = f"{_HANDLE_PREFIX}{stdlib_secrets.token_hex(16)}"
+        with self._lock:
+            self._gc()
+            self._handles[handle_id] = (secret_name, plaintext, time.monotonic())
+        return handle_id
+
+    def redeem(self, handle_id: str) -> str | None:
+        """Redeem a handle, returning plaintext.  Returns ``None`` if expired
+        or unknown.  Each handle can be redeemed **multiple times** within its
+        TTL window (sandbox may need retries)."""
+        with self._lock:
+            self._gc()
+            entry = self._handles.get(handle_id)
+            if entry is None:
+                return None
+            _name, plaintext, _created = entry
+            return plaintext
+
+    def revoke(self, handle_id: str) -> bool:
+        """Explicitly revoke a handle before its TTL expires."""
+        with self._lock:
+            return self._handles.pop(handle_id, None) is not None
+
+    def _gc(self) -> None:
+        """Remove expired handles (caller holds lock)."""
+        now = time.monotonic()
+        expired = [
+            hid
+            for hid, (_n, _v, created) in self._handles.items()
+            if now - created > self._ttl
+        ]
+        for hid in expired:
+            del self._handles[hid]
 
 
 class SecretsStore:
@@ -87,23 +151,24 @@ class SecretsStore:
     def __init__(
         self,
         passphrase: str,
+        salt: bytes,
         storage_path: Path,
         audit_path: Path,
     ) -> None:
         self._storage_path = storage_path
         self._audit_path = audit_path
-        self._fernet = self._derive_fernet(passphrase)
+        self._fernet = self._derive_fernet(passphrase, salt)
         self._ensure_directories()
 
     # -- key derivation -------------------------------------------------------
 
     @staticmethod
-    def _derive_fernet(passphrase: str) -> Fernet:
+    def _derive_fernet(passphrase: str, salt: bytes) -> Fernet:
         """Derive a Fernet key from *passphrase* via PBKDF2-HMAC-SHA256."""
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
-            salt=KDF_SALT,
+            salt=salt,
             iterations=PBKDF2_ITERATIONS,
         )
         raw_key = kdf.derive(passphrase.encode("utf-8"))
@@ -382,6 +447,55 @@ def _resolve_passphrase(config: dict[str, Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Salt resolution (per-installation random salt)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_salt(config: dict[str, Any]) -> bytes:
+    """Load or create a per-installation random salt.
+
+    The salt is stored as raw bytes in a dedicated file next to the key file.
+    If the salt file cannot be created (e.g. read-only FS), falls back to the
+    hardcoded module-scoped salt for backward compatibility.
+    """
+    salt_path = Path(config.get("salt_path", DEFAULT_SALT_PATH)).expanduser()
+
+    if salt_path.exists():
+        raw = salt_path.read_bytes()
+        if len(raw) >= _SALT_LENGTH:
+            logger.debug("Using salt from %s", salt_path)
+            return raw[:_SALT_LENGTH]
+
+    # Generate new random salt
+    logger.info("Generating new KDF salt at %s", salt_path)
+    salt = os.urandom(_SALT_LENGTH)
+
+    try:
+        salt_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(salt_path.parent, _DIR_PERMS)
+        except OSError:
+            pass
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=salt_path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(tmp_fd, "wb") as fh:
+                fh.write(salt)
+            os.chmod(tmp_path, _FILE_PERMS)
+            os.replace(tmp_path, salt_path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+            raise
+    except OSError:
+        logger.warning(
+            "Could not persist salt to %s — using fallback salt", salt_path
+        )
+        return _FALLBACK_SALT
+
+    return salt
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -402,10 +516,19 @@ class SecretsTool:
     Exposes five operations via a unified JSON-Schema input:
     ``get_secret``, ``set_secret``, ``list_secrets``, ``delete_secret``,
     and ``rotate_secret``.
+
+    **Handle-based access**: ``get_secret`` returns an opaque handle (e.g.
+    ``sec_a1b2c3...``) instead of the plaintext value.  Handles are short-lived
+    and redeemable only via the ``secrets.redeem`` capability — intended for
+    sandbox execution environments.  This prevents secrets from entering model
+    context.
     """
 
-    def __init__(self, store: SecretsStore) -> None:
+    def __init__(
+        self, store: SecretsStore, handles: SecretHandleRegistry
+    ) -> None:
         self._store = store
+        self._handles = handles
 
     # -- Amplifier Tool protocol ----------------------------------------------
 
@@ -421,7 +544,9 @@ class SecretsTool:
             "Encrypted secret storage and retrieval. "
             "Supports get, set, list, delete, and rotate operations "
             "for API keys, tokens, passwords, and other credentials. "
-            "All values are encrypted at rest and every access is audited."
+            "All values are encrypted at rest and every access is audited. "
+            "get_secret returns an opaque handle (not the value) — "
+            "pass the handle to sandbox execution to use the secret."
         )
 
     @property
@@ -517,16 +642,22 @@ class SecretsTool:
         return None
 
     def _get(self, name: str | None) -> ToolResult:
+        """Return an opaque handle — never plaintext."""
         if err := self._require_name(name, "get_secret"):
             return err
         assert name is not None  # narrowing for type checker
-        value = self._store.get_secret(name)
+        plaintext = self._store.get_secret(name)
+        handle_id = self._handles.create(name, plaintext)
         return ToolResult(
             success=True,
             output={
                 "name": name,
-                "value": value,
-                "warning": "Secret value retrieved. Handle with care.",
+                "handle": handle_id,
+                "ttl_seconds": _HANDLE_TTL_SECONDS,
+                "note": (
+                    "This is an opaque handle, not the secret value. "
+                    "Pass it to sandbox execution to use the secret."
+                ),
             },
         )
 
@@ -601,10 +732,16 @@ async def mount(
     ``key_path``
         Path for the auto-generated key file (used when the env var is
         not set).  Default: ``~/.letsgo/secrets.key``.
+    ``salt_path``
+        Path for the per-installation random KDF salt.
+        Default: ``~/.letsgo/secrets.salt``.
+    ``handle_ttl``
+        Lifetime of secret handles in seconds.  Default: 300 (5 min).
     """
     config = config or {}
 
     passphrase = _resolve_passphrase(config)
+    salt = _resolve_salt(config)
     storage_path = Path(
         config.get("storage_path", DEFAULT_STORAGE_PATH),
     ).expanduser()
@@ -612,8 +749,15 @@ async def mount(
         config.get("audit_log", DEFAULT_AUDIT_LOG),
     ).expanduser()
 
-    store = SecretsStore(passphrase, storage_path, audit_path)
-    tool = SecretsTool(store)
+    handle_ttl = int(config.get("handle_ttl", _HANDLE_TTL_SECONDS))
+    handles = SecretHandleRegistry(ttl_seconds=handle_ttl)
+
+    store = SecretsStore(passphrase, salt, storage_path, audit_path)
+    tool = SecretsTool(store, handles)
 
     await coordinator.mount("tools", tool, name="tool-secrets")
-    logger.info("tool-secrets mounted (storage=%s)", storage_path)
+
+    # Register the redeem capability so sandbox can resolve handles
+    coordinator.register_capability("secrets.redeem", handles.redeem)
+
+    logger.info("tool-secrets mounted (storage=%s, handle_ttl=%ds)", storage_path, handle_ttl)

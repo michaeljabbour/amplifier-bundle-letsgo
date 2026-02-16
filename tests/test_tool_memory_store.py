@@ -6,6 +6,7 @@ and the mount() integration.
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -109,8 +110,8 @@ class TestMemoryStore:
 
     def test_search_ids(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
-        id1 = store.store("Rust systems programming language")
-        id2 = store.store("Rust borrow checker explained")
+        store.store("Rust systems programming language")
+        store.store("Rust borrow checker explained")
 
         ids = store.search_ids(
             "Rust programming",
@@ -193,6 +194,38 @@ class TestMemoryStore:
         records = store.get([mem_id])
         assert records[0]["tags"] == "python,testing"
 
+    def test_deduplication(self, tmp_path: Path) -> None:
+        """Storing identical content twice returns the same id."""
+        store = _make_store(tmp_path)
+        id1 = store.store("Exact same content for dedup test")
+        id2 = store.store("Exact same content for dedup test")
+
+        assert id1 == id2
+        assert store.count() == 1
+
+    def test_ttl_expiry(self, tmp_path: Path) -> None:
+        """Store with ttl_days, then verify purge_expired removes it."""
+        store = _make_store(tmp_path)
+        mem_id = store.store("Ephemeral memory", ttl_days=1)
+
+        # Memory should exist before expiry
+        assert store.get([mem_id]) != []
+
+        # Manually set expires_at to the past to simulate expiry
+        db_path = tmp_path / "test_memories.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "UPDATE memories SET expires_at = '2000-01-01T00:00:00+00:00' "
+            "WHERE id = ?",
+            (mem_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        purged = store.purge_expired()
+        assert purged == 1
+        assert store.get([mem_id]) == []
+
 
 # ===========================================================================
 # MemoryTool tests
@@ -213,9 +246,10 @@ class TestMemoryTool:
             "category": "notes",
             "importance": 0.8,
         })
-        assert result["status"] == "stored"
-        assert "id" in result
-        assert len(result["id"]) == 12
+        assert result.success is True
+        assert result.output["status"] == "stored"
+        assert "id" in result.output
+        assert len(result.output["id"]) == 12
 
     @pytest.mark.asyncio
     async def test_search_memories_operation(self, tmp_path: Path) -> None:
@@ -235,9 +269,10 @@ class TestMemoryTool:
             "operation": "search_memories",
             "query": "Docker container",
         })
-        assert "results" in result
-        assert "count" in result
-        assert result["count"] >= 1
+        assert result.success is True
+        assert "results" in result.output
+        assert "count" in result.output
+        assert result.output["count"] >= 1
 
     @pytest.mark.asyncio
     async def test_list_memories_operation(self, tmp_path: Path) -> None:
@@ -257,10 +292,11 @@ class TestMemoryTool:
             "operation": "list_memories",
             "limit": 10,
         })
-        assert "memories" in result
-        assert "total" in result
-        assert result["total"] == 2
-        assert len(result["memories"]) == 2
+        assert result.success is True
+        assert "memories" in result.output
+        assert "total" in result.output
+        assert result.output["total"] == 2
+        assert len(result.output["memories"]) == 2
 
     @pytest.mark.asyncio
     async def test_get_memory_operation(self, tmp_path: Path) -> None:
@@ -271,14 +307,15 @@ class TestMemoryTool:
             "operation": "store_memory",
             "content": "Specific memory to retrieve",
         })
-        mem_id = store_result["id"]
+        mem_id = store_result.output["id"]
 
         result = await tool.execute({
             "operation": "get_memory",
             "id": mem_id,
         })
-        assert result["id"] == mem_id
-        assert result["content"] == "Specific memory to retrieve"
+        assert result.success is True
+        assert result.output["id"] == mem_id
+        assert result.output["content"] == "Specific memory to retrieve"
 
     @pytest.mark.asyncio
     async def test_delete_memory_operation(self, tmp_path: Path) -> None:
@@ -289,20 +326,21 @@ class TestMemoryTool:
             "operation": "store_memory",
             "content": "Memory to delete",
         })
-        mem_id = store_result["id"]
+        mem_id = store_result.output["id"]
 
         result = await tool.execute({
             "operation": "delete_memory",
             "id": mem_id,
         })
-        assert result["deleted"] is True
+        assert result.success is True
+        assert result.output["deleted"] is True
 
         # Verify it's gone
         get_result = await tool.execute({
             "operation": "get_memory",
             "id": mem_id,
         })
-        assert "error" in get_result
+        assert get_result.success is False
 
     @pytest.mark.asyncio
     async def test_unknown_operation_returns_error(self, tmp_path: Path) -> None:
@@ -310,7 +348,7 @@ class TestMemoryTool:
         tool = MemoryTool(store)
 
         result = await tool.execute({"operation": "do_something_weird"})
-        assert "error" in result
+        assert result.success is False
 
     @pytest.mark.asyncio
     async def test_store_memory_missing_content(self, tmp_path: Path) -> None:
@@ -318,7 +356,7 @@ class TestMemoryTool:
         tool = MemoryTool(store)
 
         result = await tool.execute({"operation": "store_memory"})
-        assert "error" in result
+        assert result.success is False
 
     def test_tool_properties(self, tmp_path: Path) -> None:
         store = _make_store(tmp_path)
@@ -329,6 +367,35 @@ class TestMemoryTool:
         schema = tool.input_schema
         assert schema["type"] == "object"
         assert "operation" in schema["properties"]
+
+    @pytest.mark.asyncio
+    async def test_purge_expired_operation(self, tmp_path: Path) -> None:
+        """Test purge_expired through the tool execute interface."""
+        store = _make_store(tmp_path)
+        tool = MemoryTool(store)
+
+        r = await tool.execute({
+            "operation": "store_memory",
+            "content": "Will expire soon via purge",
+            "ttl_days": 1,
+        })
+        assert r.success is True
+        mem_id = r.output["id"]
+
+        # Manually expire the memory
+        db_path = tmp_path / "test_memories.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute(
+            "UPDATE memories SET expires_at = '2000-01-01T00:00:00+00:00' "
+            "WHERE id = ?",
+            (mem_id,),
+        )
+        conn.commit()
+        conn.close()
+
+        result = await tool.execute({"operation": "purge_expired"})
+        assert result.success is True
+        assert result.output["purged"] == 1
 
 
 # ===========================================================================

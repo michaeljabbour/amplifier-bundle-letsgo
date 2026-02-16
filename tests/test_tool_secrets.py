@@ -1,17 +1,19 @@
 """Tests for tool-secrets module.
 
-Exercises the SecretsStore (encryption, CRUD, rotation, audit) and the
-SecretsTool wrapper — all using temporary directories, no running session.
+Exercises the SecretsStore (encryption, CRUD, rotation, audit), the
+SecretHandleRegistry, and the SecretsTool wrapper — all using temporary
+directories, no running session.
 """
 
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
 
-from amplifier_module_tool_secrets import SecretsTool, SecretsStore
+from amplifier_module_tool_secrets import SecretHandleRegistry, SecretsTool, SecretsStore
 
 
 # ---------------------------------------------------------------------------
@@ -23,6 +25,7 @@ def _make_store(tmp_path: Path) -> SecretsStore:
     """Create a SecretsStore backed by files in *tmp_path*."""
     return SecretsStore(
         passphrase="test-passphrase-42",
+        salt=b"test-salt-0123456789abcdef0123456789abcdef",
         storage_path=tmp_path / "secrets.enc",
         audit_path=tmp_path / "logs" / "audit.jsonl",
     )
@@ -30,7 +33,38 @@ def _make_store(tmp_path: Path) -> SecretsStore:
 
 def _make_tool(tmp_path: Path) -> SecretsTool:
     """Create a SecretsTool wrapping a temp-backed SecretsStore."""
-    return SecretsTool(_make_store(tmp_path))
+    store = _make_store(tmp_path)
+    handles = SecretHandleRegistry()
+    return SecretsTool(store, handles)
+
+
+# ---------------------------------------------------------------------------
+# SecretHandleRegistry tests
+# ---------------------------------------------------------------------------
+
+
+class TestSecretHandleRegistry:
+    """Direct tests against the SecretHandleRegistry."""
+
+    def test_handle_registry_create_and_redeem(self) -> None:
+        """Create a handle and redeem it for the plaintext."""
+        registry = SecretHandleRegistry()
+
+        handle_id = registry.create("my_key", "my_secret_value")
+
+        assert handle_id.startswith("sec_")
+        plaintext = registry.redeem(handle_id)
+        assert plaintext == "my_secret_value"
+
+    def test_handle_registry_expiry(self) -> None:
+        """Expired handles return None on redeem."""
+        registry = SecretHandleRegistry(ttl_seconds=0)
+
+        handle_id = registry.create("expiring_key", "expiring_value")
+        time.sleep(0.01)  # ensure time.monotonic() advances past TTL
+
+        result = registry.redeem(handle_id)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +180,10 @@ class TestSecretsTool:
 
     @pytest.mark.asyncio
     async def test_set_and_get_via_tool(self, tmp_path: Path) -> None:
-        """Round-trip through the tool's execute() method."""
+        """Round-trip through the tool's execute() method.
+
+        get_secret now returns an opaque handle, not the plaintext value.
+        """
         tool = _make_tool(tmp_path)
 
         set_result = await tool.execute({
@@ -162,7 +199,8 @@ class TestSecretsTool:
             "name": "tool_key",
         })
         assert get_result.success is True
-        assert get_result.output["value"] == "tool_val"
+        assert get_result.output["handle"].startswith("sec_")
+        assert "value" not in get_result.output
 
     @pytest.mark.asyncio
     async def test_list_via_tool(self, tmp_path: Path) -> None:
@@ -214,7 +252,10 @@ class TestSecretsTool:
 
     @pytest.mark.asyncio
     async def test_rotate_via_tool(self, tmp_path: Path) -> None:
-        """Rotate through execute() updates the stored value."""
+        """Rotate through execute() updates the stored value.
+
+        The subsequent get returns a handle, not the plaintext.
+        """
         tool = _make_tool(tmp_path)
         await tool.execute({
             "operation": "set_secret",
@@ -234,7 +275,9 @@ class TestSecretsTool:
             "operation": "get_secret",
             "name": "rot_key",
         })
-        assert get_result.output["value"] == "new"
+        assert get_result.success is True
+        assert get_result.output["handle"].startswith("sec_")
+        assert "value" not in get_result.output
 
     @pytest.mark.asyncio
     async def test_unknown_operation(self, tmp_path: Path) -> None:
@@ -252,3 +295,24 @@ class TestSecretsTool:
         result = await tool.execute({"operation": "get_secret"})
         assert result.success is False
         assert "name" in result.error["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_get_secret_returns_handle_not_plaintext(self, tmp_path: Path) -> None:
+        """get_secret output contains a handle but never a 'value' key."""
+        tool = _make_tool(tmp_path)
+        await tool.execute({
+            "operation": "set_secret",
+            "name": "handle_test",
+            "value": "should-not-appear",
+        })
+
+        get_result = await tool.execute({
+            "operation": "get_secret",
+            "name": "handle_test",
+        })
+        assert get_result.success is True
+        assert "handle" in get_result.output
+        assert get_result.output["handle"].startswith("sec_")
+        assert "ttl_seconds" in get_result.output
+        assert "value" not in get_result.output
+        assert "should-not-appear" not in str(get_result.output)
