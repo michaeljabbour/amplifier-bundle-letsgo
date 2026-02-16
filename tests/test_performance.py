@@ -38,6 +38,7 @@ def _make_hook(tmp_path: Path, **overrides: object) -> ToolPolicyHook:
         "allowed_write_paths": ["/tmp/safe/"],
         "sandbox_mode": "off",
         "default_action": "deny",
+        "careful_mode": True,
         "audit_log_path": str(tmp_path / "perf-audit.jsonl"),
     }
     config.update(overrides)

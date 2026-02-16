@@ -30,6 +30,7 @@ def _make_hook(tmp_path: Path, **overrides: object) -> ToolPolicyHook:
         "allowed_write_paths": ["/tmp/safe/"],
         "sandbox_mode": "off",
         "default_action": "deny",
+        "careful_mode": True,
         "automation_mode": False,
         "audit_log_path": str(tmp_path / "replay-audit.jsonl"),
     }

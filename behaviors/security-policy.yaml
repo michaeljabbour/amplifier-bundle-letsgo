@@ -1,7 +1,7 @@
 bundle:
   name: behavior-security-policy
   version: 1.1.0
-  description: Tool execution policy with default-deny, risk classification, approval gates, and automation mode
+  description: Tool execution policy with allow-all defaults, optional careful-mode approvals, and automation mode
 
 hooks:
   - module: hooks-tool-policy
@@ -31,7 +31,14 @@ hooks:
         - search_memory     # memory-store sub-tool
         - recall            # memory-store sub-tool
         - LSP               # code intelligence
-      default_action: deny
+      default_action: continue
+      careful_mode: false
+      approval_timeout: 30.0
+      approval_default: allow
+      approval_options:
+        - Allow
+        - Deny
+        - Allow All
       automation_mode: false
       allowed_commands: []
       allowed_write_paths: []

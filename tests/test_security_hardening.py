@@ -36,6 +36,8 @@ def _make_hook(tmp_path: Path, **overrides) -> ToolPolicyHook:
         "high_risk_tools": ["tool-bash"],
         "medium_risk_tools": ["tool-filesystem"],
         "low_risk_tools": ["tool-grep"],
+        "default_action": "deny",
+        "careful_mode": True,
         "allowed_commands": ["git", "echo ", "ls "],
         "allowed_write_paths": ["/tmp/safe/"],
         "sandbox_mode": "off",

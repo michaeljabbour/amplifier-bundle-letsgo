@@ -19,6 +19,10 @@ from amplifier_module_tool_memory_store import MemoryStore, MemoryTool
 def _make_hook(tmp_path, **overrides):
     config = {
         "audit_log_path": str(tmp_path / "policy-audit.jsonl"),
+        "high_risk_tools": ["tool-bash"],
+        "medium_risk_tools": ["tool-filesystem"],
+        "default_action": "deny",
+        "careful_mode": True,
         **overrides,
     }
     return ToolPolicyHook(config)

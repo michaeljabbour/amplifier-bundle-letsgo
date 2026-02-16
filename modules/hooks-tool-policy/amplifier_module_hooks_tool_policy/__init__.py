@@ -5,8 +5,9 @@ any tool executes.  Decisions are based on four risk tiers (blocked / high /
 medium / low), two allowlist mechanisms (command-prefix and path-prefix), an
 optional sandbox rewrite for bash commands, and a JSONL audit trail.
 
-**Default-deny invariant**: unlisted tools are denied by default.  To allow a
-new tool, it must be explicitly added to a risk tier.
+By default, the policy runs in an **allow-all profile**: unclassified and
+high-risk tools proceed without interactive prompts.  Enabling ``careful_mode``
+switches high-risk tools to approval-gated behavior.
 
 Configuration keys (all optional, sane defaults provided)::
 
@@ -14,7 +15,11 @@ Configuration keys (all optional, sane defaults provided)::
     medium_risk_tools    - list[str]  (default: ["tool-filesystem"])
     low_risk_tools       - list[str]  (default: [])
     blocked_tools        - list[str]  (default: [])
-    default_action       - "deny" | "ask_user" | "continue"  (default: "deny")
+    default_action       - "deny" | "ask_user" | "continue"  (default: "continue")
+    careful_mode         - bool  (default: false)  high-risk tools require approval
+    approval_timeout     - float seconds (default: 30.0) for approval prompts
+    approval_default     - "allow" | "deny" (default: "allow") on prompt timeout
+    approval_options     - list[str]  (default: ["Allow", "Deny", "Allow All"])
     allowed_commands     - list[str]  command prefixes that downgrade bash → low
     allowed_write_paths  - list[str]  path prefixes that downgrade fs writes → low
     sandbox_mode         - "enforce" | "off"  (default: "enforce")
@@ -31,7 +36,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from amplifier_core.models import HookResult
 
@@ -59,6 +64,8 @@ def _resolve_base_dir(config: dict) -> Path:
 
 class ToolPolicyHook:
     """Stateful policy engine instantiated once per mount with frozen config."""
+
+    _DEFAULT_APPROVAL_OPTIONS = ["Allow", "Deny", "Allow All"]
 
     @staticmethod
     def _normalize_tool_names(names: list[str]) -> set[str]:
@@ -92,12 +99,34 @@ class ToolPolicyHook:
         self.low_risk_tools = self._normalize_tool_names(config.get("low_risk_tools", []))
 
         # Default action for unlisted tools: "deny" | "ask_user" | "continue"
-        self.default_action: str = config.get("default_action", "deny")
+        self.default_action: str = config.get("default_action", "continue")
+
+        # Careful mode gates high-risk tools behind ask_user approval prompts.
+        # Default false for an allow-all UX unless the user explicitly opts in.
+        self.careful_mode: bool = bool(config.get("careful_mode", False))
 
         # Automation mode — restricted profile for scheduled/unattended runs.
         # When True: secrets tool blocked, all high-risk → deny (no ask_user),
         # unknown tools → deny regardless of default_action.
         self.automation_mode: bool = config.get("automation_mode", False)
+
+        # Approval prompt behavior (used only when careful_mode=True).
+        timeout = config.get("approval_timeout", 30.0)
+        try:
+            self.approval_timeout: float = max(1.0, float(timeout))
+        except (TypeError, ValueError):
+            self.approval_timeout = 30.0
+
+        approval_default = str(config.get("approval_default", "allow")).lower()
+        self.approval_default: Literal["allow", "deny"] = (
+            "deny" if approval_default == "deny" else "allow"
+        )
+
+        options = config.get("approval_options", self._DEFAULT_APPROVAL_OPTIONS)
+        if isinstance(options, list) and options:
+            self.approval_options: list[str] = [str(option) for option in options]
+        else:
+            self.approval_options = self._DEFAULT_APPROVAL_OPTIONS.copy()
 
         # Allowlists
         self.allowed_commands: list[str] = config.get("allowed_commands", [])
@@ -138,7 +167,7 @@ class ToolPolicyHook:
         if tool_name in self.low_risk_tools:
             return "low"
 
-        # Unlisted tool — default-deny invariant
+        # Unlisted tool — action determined by default_action.
         if self.automation_mode:
             return "unclassified"
 
@@ -335,7 +364,7 @@ class ToolPolicyHook:
         if risk_level == "unclassified":
             reason = (
                 f"Tool '{tool_name}' is not in any risk classification — "
-                "denied by default-deny policy"
+                "denied by default policy action"
             )
             result = HookResult(action="deny", reason=reason)
 
@@ -352,7 +381,7 @@ class ToolPolicyHook:
                     "automation mode does not permit interactive approval"
                 )
                 result = HookResult(action="deny", reason=reason)
-            else:
+            elif self.careful_mode:
                 command_preview = (
                     _truncated_command(tool_input)
                     if tool_name == "tool-bash"
@@ -364,11 +393,20 @@ class ToolPolicyHook:
                     action="ask_user",
                     approval_prompt=(
                         f"Tool '{tool_name}' is classified as HIGH risk"
-                        f"{prompt_detail}.\nAllow this operation?"
+                        f"{prompt_detail}.\n"
+                        "Allow this operation?\n"
+                        "Replies: a/y/yes/allow, d/n/no/deny, aaa/all."
                     ),
-                    approval_timeout=120.0,
-                    approval_default="deny",
+                    approval_options=self.approval_options,
+                    approval_timeout=self.approval_timeout,
+                    approval_default=self.approval_default,
                 )
+            else:
+                reason = (
+                    f"High-risk tool '{tool_name}' auto-allowed — "
+                    "careful_mode is disabled"
+                )
+                result = HookResult(action="continue")
 
         elif risk_level == "medium":
             summary = _summarize_operation(tool_name, tool_input)
@@ -465,10 +503,11 @@ async def mount(coordinator, config=None):  # noqa: ANN001
     )
 
     logger.info(
-        "hooks-tool-policy mounted  sandbox=%s  default=%s  automation=%s  "
-        "blocked=%s  high=%s  medium=%s",
+        "hooks-tool-policy mounted  sandbox=%s  default=%s  careful=%s  "
+        "automation=%s  blocked=%s  high=%s  medium=%s",
         hook.sandbox_mode,
         hook.default_action,
+        hook.careful_mode,
         hook.automation_mode,
         hook.blocked_tools,
         hook.high_risk_tools,

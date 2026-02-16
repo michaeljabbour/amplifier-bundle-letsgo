@@ -27,6 +27,8 @@ def _make_hook(tmp_path: Path, **overrides) -> ToolPolicyHook:
         "high_risk_tools": ["tool-bash"],
         "medium_risk_tools": ["tool-filesystem"],
         "low_risk_tools": ["tool-grep"],
+        "default_action": "deny",
+        "careful_mode": True,
         "allowed_commands": ["echo ", "ls "],
         "allowed_write_paths": ["/tmp/safe/"],
         "sandbox_mode": "off",
@@ -73,6 +75,9 @@ async def test_high_risk_tool_asks_user(tmp_path: Path) -> None:
     assert result.action == "ask_user"
     assert result.approval_prompt is not None
     assert "tool-bash" in result.approval_prompt
+    assert result.approval_timeout == 30.0
+    assert result.approval_default == "allow"
+    assert result.approval_options == ["Allow", "Deny", "Allow All"]
 
 
 @pytest.mark.asyncio
@@ -239,3 +244,17 @@ async def test_path_allowlist_downgrades_medium(tmp_path: Path) -> None:
     assert result.action == "continue"
     # A true low-risk result has no user_message
     assert result.user_message is None
+
+
+@pytest.mark.asyncio
+async def test_module_defaults_are_allow_all(tmp_path: Path) -> None:
+    """No config should default to allow-all (no approval prompts)."""
+    hook = ToolPolicyHook({"audit_log_path": str(tmp_path / "audit.jsonl")})
+
+    unlisted = await hook.handle("tool:pre", _tool_event("tool-unknown-new-thing"))
+    high_risk = await hook.handle(
+        "tool:pre", _tool_event("tool-bash", {"command": "rm -rf /"})
+    )
+
+    assert unlisted.action == "continue"
+    assert high_risk.action in {"continue", "modify"}
