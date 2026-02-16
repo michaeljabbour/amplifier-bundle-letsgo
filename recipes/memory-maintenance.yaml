@@ -1,0 +1,96 @@
+# Memory Maintenance — automated cleanup, deduplication, and optimization.
+# Flat recipe: sequential steps, fully automated.
+# Usage: recipes execute letsgo:recipes/memory-maintenance.yaml
+
+name: memory-maintenance
+description: Automated memory cleanup — audit, deduplicate, summarize old entries, and optimize indexes
+version: 1.0.0
+author: letsgo
+tags:
+  - memory
+  - maintenance
+  - cleanup
+  - optimization
+
+context:
+  summarize_older_than_days: "30"
+  similarity_threshold: "0.85"
+
+steps:
+  - id: audit-memories
+    agent: letsgo:memory-curator
+    prompt: |
+      Perform a comprehensive memory audit:
+
+      1. Count total memories and report storage size
+      2. Break down counts by category (decision, insight, fact, preference, context)
+      3. Identify memories older than {{summarize_older_than_days}} days that are verbose (>500 chars)
+      4. Find potential duplicates with similarity above {{similarity_threshold}}
+      5. List memories with no tags or categories (uncategorized)
+      6. Report the top 5 most-accessed and top 5 least-accessed memories
+
+      Present findings as a structured audit report with counts and specific examples.
+    output: audit_report
+    timeout: 180
+
+  - id: deduplicate
+    agent: letsgo:memory-curator
+    prompt: |
+      Based on the audit findings below, merge duplicate memories:
+
+      {{audit_report}}
+
+      For each duplicate cluster identified (similarity > {{similarity_threshold}}):
+      1. Keep the most complete and recent version
+      2. Merge all unique tags from all versions
+      3. Preserve the highest importance score
+      4. Log what was merged (original IDs and content previews)
+
+      Report:
+      - Number of duplicate clusters found
+      - Number of memories merged
+      - Estimated storage saved
+    output: dedup_report
+    timeout: 180
+
+  - id: summarize-old
+    agent: letsgo:memory-curator
+    prompt: |
+      Summarize verbose memories older than {{summarize_older_than_days}} days.
+
+      For each memory that exceeds 500 characters and is older than the threshold:
+      1. Create a concise summary preserving key facts, decisions, and context
+      2. Keep the summary under 200 characters where possible
+      3. Preserve all original tags and metadata
+      4. Mark the original as summarized
+
+      Do NOT summarize memories marked as "permanent" or with importance > 0.8.
+
+      Report:
+      - Number of memories summarized
+      - Average compression ratio
+      - Any memories skipped and why
+    output: summarize_report
+    timeout: 300
+
+  - id: generate-report
+    agent: self
+    prompt: |
+      Generate a memory maintenance report from the following results:
+
+      ## Audit
+      {{audit_report}}
+
+      ## Deduplication
+      {{dedup_report}}
+
+      ## Summarization
+      {{summarize_report}}
+
+      Format as a concise maintenance report with:
+      - **Before/After** — total memory count, storage size, index health
+      - **Actions Taken** — merges performed, summaries created
+      - **Health Score** — rate the memory system health (good/fair/needs-attention)
+      - **Recommendations** — tagging improvements, retention adjustments, next maintenance date
+    output: maintenance_report
+    timeout: 120

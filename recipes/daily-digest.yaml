@@ -1,0 +1,75 @@
+# Daily Digest — generates a summary of recent sessions, memories, and activity.
+# Flat recipe: sequential steps, no approval gates needed.
+# Usage: recipes execute letsgo:recipes/daily-digest.yaml
+
+name: daily-digest
+description: Generate a daily summary of sessions, memories, and notable events
+version: 1.0.0
+author: letsgo
+tags:
+  - daily
+  - digest
+  - summary
+  - maintenance
+
+context:
+  lookback_hours: "24"
+  digest_style: "concise"
+
+steps:
+  - id: gather-sessions
+    agent: foundation:session-analyst
+    prompt: |
+      Analyze sessions from the last {{lookback_hours}} hours.
+
+      For each session found, report:
+      - Start time and duration
+      - Topic or primary subject
+      - Key outcomes (decisions made, problems solved, artifacts created)
+      - Status (completed, interrupted, ongoing)
+
+      If no sessions are found, say so explicitly.
+      Format as a structured list, ordered by start time.
+    output: session_summary
+    timeout: 120
+    on_error: continue
+
+  - id: gather-memories
+    agent: letsgo:memory-curator
+    prompt: |
+      Search for memories created or updated in the last {{lookback_hours}} hours.
+
+      For each memory found, report:
+      - Content summary (one line)
+      - Category (decision, insight, fact, preference, context)
+      - Tags
+      - Importance score
+
+      Group memories by category. Note any patterns or recurring themes.
+      If no recent memories exist, say so explicitly.
+    output: memory_summary
+    timeout: 120
+    on_error: continue
+
+  - id: synthesize-digest
+    agent: self
+    prompt: |
+      Create a {{digest_style}} daily digest from the following sources:
+
+      ## Session Activity
+      {{session_summary}}
+
+      ## Memory Activity
+      {{memory_summary}}
+
+      Format the digest with these sections:
+
+      1. **Highlights** — top 3 accomplishments, decisions, or notable events
+      2. **Sessions** — brief list of what was worked on, with durations
+      3. **Knowledge Captured** — new memories and insights stored today
+      4. **Suggested Follow-ups** — items that may need attention tomorrow
+
+      Keep the tone professional and scannable. Use bullet points.
+      If a section has no content, include it with "None today."
+    output: daily_digest
+    timeout: 180

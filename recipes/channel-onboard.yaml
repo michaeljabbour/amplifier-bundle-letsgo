@@ -1,0 +1,167 @@
+# Channel Onboarding — set up a new messaging channel with staged approval gates.
+# Staged recipe: human-in-loop at each stage for verification.
+# Usage: recipes execute letsgo:recipes/channel-onboard.yaml context='{"channel_type":"telegram","channel_name":"my-bot"}'
+
+name: channel-onboard
+description: Set up a new messaging channel with authentication, pairing, and verification
+version: 1.0.0
+author: letsgo
+tags:
+  - channels
+  - onboarding
+  - setup
+  - messaging
+
+context:
+  channel_type: ""
+  channel_name: ""
+
+stages:
+  - name: configure
+    steps:
+      - id: validate-channel-type
+        agent: self
+        prompt: |
+          Validate the channel configuration request.
+
+          Channel type: {{channel_type}}
+          Channel name: {{channel_name}}
+
+          Supported channels and their requirements:
+
+          **telegram**:
+          - Bot token (from @BotFather)
+          - Optional: webhook URL, allowed user IDs
+
+          **discord**:
+          - Bot token (from Discord Developer Portal)
+          - Guild ID (server to connect to)
+          - Optional: channel ID, role permissions
+
+          **slack**:
+          - Bot token (xoxb-...)
+          - Signing secret
+          - Optional: channel IDs, workspace restrictions
+
+          **webhook**:
+          - Endpoint URL
+          - Shared secret for HMAC verification
+          - Optional: custom headers, retry policy
+
+          If channel_type is empty or unsupported, list the supported types and ask the user to choose.
+          If channel_type is valid, list the required credentials for this channel type.
+          Validate the format of any provided values (don't test connectivity yet).
+
+          Report: channel type confirmed, credentials needed, any values already provided.
+        output: channel_config
+        timeout: 300
+
+    approval:
+      required: true
+      prompt: |
+        Channel type: {{channel_type}} ({{channel_name}})
+
+        {{channel_config}}
+
+        Proceed to test authentication with these settings?
+
+  - name: authenticate
+    steps:
+      - id: store-credentials
+        agent: self
+        prompt: |
+          Store the channel credentials securely.
+
+          Channel: {{channel_type}} ({{channel_name}})
+          Configuration: {{channel_config}}
+
+          Use tool-secrets to store each credential:
+          - Name format: channel/{{channel_type}}/{{channel_name}}/<credential-name>
+          - Category: channel_credential
+
+          Report which credentials were stored (names only, never values).
+        output: credential_storage
+        timeout: 120
+
+      - id: test-auth
+        agent: self
+        prompt: |
+          Test authentication for the configured channel.
+
+          Channel: {{channel_type}} ({{channel_name}})
+          Stored credentials: {{credential_storage}}
+
+          Steps:
+          1. Retrieve credentials from tool-secrets
+          2. Attempt to authenticate with the channel's API
+          3. Verify the bot/webhook identity and permissions
+          4. Report: connection status, bot identity, available permissions
+
+          If authentication fails, report the error clearly with troubleshooting steps.
+        output: auth_result
+        timeout: 120
+
+      - id: pair-device
+        agent: self
+        prompt: |
+          Perform device pairing for the {{channel_type}} channel "{{channel_name}}".
+
+          Authentication result: {{auth_result}}
+
+          Pairing steps by channel type:
+          - **Telegram**: Send a test message to the bot, verify receipt
+          - **Discord**: Send a message in the configured guild, verify receipt
+          - **Slack**: Post a test message to a channel, verify receipt
+          - **Webhook**: Send a test payload to the endpoint, verify response
+
+          Report: pairing status, test message sent/received, any issues.
+        output: pairing_result
+        timeout: 120
+
+    approval:
+      required: true
+      prompt: |
+        Authentication and pairing results for {{channel_type}} ({{channel_name}}):
+
+        Auth: {{auth_result}}
+        Pairing: {{pairing_result}}
+
+        Activate this channel for live message routing?
+
+  - name: activate
+    steps:
+      - id: enable-channel
+        agent: self
+        prompt: |
+          Activate the {{channel_type}} channel "{{channel_name}}" in LetsGo's gateway.
+
+          1. Register the channel in the gateway configuration
+          2. Enable inbound message routing for this channel
+          3. Enable outbound message delivery for this channel
+          4. Send a confirmation message through the channel:
+             "LetsGo connected to {{channel_name}} ({{channel_type}}). Ready to assist."
+
+          Report: activation status, confirmation message delivery status.
+        output: activation_result
+        timeout: 120
+
+      - id: generate-summary
+        agent: self
+        prompt: |
+          Generate a final onboarding summary for {{channel_type}} channel "{{channel_name}}".
+
+          Configuration: {{channel_config}}
+          Credentials stored: {{credential_storage}}
+          Authentication: {{auth_result}}
+          Pairing: {{pairing_result}}
+          Activation: {{activation_result}}
+
+          Create a summary report with:
+          - **Channel**: Type, name, and connection details
+          - **Credentials**: What was stored (names only) and where
+          - **Status**: Current channel state (active/inactive)
+          - **Features**: What works (send, receive, reactions, threads, etc.)
+          - **Limitations**: Any known restrictions or missing features
+          - **Next Steps**: Recommended configuration (allowlists, notifications, etc.)
+        output: onboarding_summary
+        timeout: 180

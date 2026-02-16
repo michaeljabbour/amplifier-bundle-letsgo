@@ -10,6 +10,7 @@ Scored relevance, read-time governor, sensitivity gating.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -22,6 +23,21 @@ from amplifier_core.models import HookResult
 __amplifier_module_type__ = "hook"
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Path resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_base_dir(config: dict) -> Path:
+    """Resolve base directory: config > LETSGO_HOME env > ~/.letsgo default."""
+    if base := config.get("base_dir"):
+        return Path(base).expanduser()
+    if env := os.environ.get("LETSGO_HOME"):
+        return Path(env).expanduser()
+    return Path("~/.letsgo").expanduser()
+
 
 # ---------------------------------------------------------------------------
 # Memory Governor (read-time safety)
@@ -484,8 +500,9 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> None:
     Register a prompt:submit handler that injects relevant memories.
     """
     cfg = config or {}
+    base = _resolve_base_dir(cfg)
 
-    raw_path = cfg.get("memory_db_path", "~/.letsgo/memories.db")
+    raw_path = cfg.get("memory_db_path", str(base / "memories.db"))
     memory_db_path = Path(raw_path).expanduser()
 
     # Backward compat: map min_relevance -> min_score

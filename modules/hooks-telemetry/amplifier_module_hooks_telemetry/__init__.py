@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -25,6 +26,21 @@ from amplifier_core.models import HookResult
 __amplifier_module_type__ = "hook"
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Path resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_base_dir(config: dict) -> Path:
+    """Resolve base directory: config > LETSGO_HOME env > ~/.letsgo default."""
+    if base := config.get("base_dir"):
+        return Path(base).expanduser()
+    if env := os.environ.get("LETSGO_HOME"):
+        return Path(env).expanduser()
+    return Path("~/.letsgo").expanduser()
+
 
 # ---------------------------------------------------------------------------
 # Metrics collector
@@ -285,7 +301,8 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> None:
     Register event handlers and expose metrics capability.
     """
     cfg = config or {}
-    raw_path = cfg.get("metrics_path", "~/.letsgo/logs/telemetry.jsonl")
+    base = _resolve_base_dir(cfg)
+    raw_path = cfg.get("metrics_path", str(base / "logs" / "telemetry.jsonl"))
     metrics_path = Path(raw_path).expanduser()
 
     collector = TelemetryCollector(metrics_path)

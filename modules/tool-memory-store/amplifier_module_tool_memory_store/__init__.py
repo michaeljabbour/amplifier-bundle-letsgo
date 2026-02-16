@@ -1,5 +1,6 @@
 """Durable memory store with SQLite, FTS5, scored search, CRUD, dedup, TTL,
-structured fact store, and memory summarization.
+structured fact store, memory summarization, rich observation metadata,
+file tracking, concept tagging, and access-based eviction.
 
 Implements the full search_v2 contract: search_v2, search_ids, get, plus basic
 CRUD operations as an Amplifier Tool.  Registers the ``memory.store``
@@ -12,11 +13,15 @@ Hardening features:
   excluded from search and periodically purged by ``purge_expired()``.
 * **Fact store** — subject/predicate/object triples with confidence scoring.
 * **Summarization** — automatic condensation of old memories into summaries.
+* **Rich metadata** — observation type, title, subtitle, concepts, file tracking.
+* **Access counting** — tracks how often each memory is retrieved.
+* **Max memories cap** — configurable limit with smart eviction.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import sqlite3
 import threading
@@ -31,6 +36,19 @@ from amplifier_core.models import ToolResult  # type: ignore[import-not-found]
 __amplifier_module_type__ = "tool"
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+OBSERVATION_TYPES: list[str] = [
+    "bugfix", "feature", "refactor", "change", "discovery", "decision",
+]
+
+CONCEPT_TYPES: list[str] = [
+    "how-it-works", "why-it-exists", "what-changed",
+    "problem-solution", "gotcha", "pattern", "trade-off",
+]
 
 # ---------------------------------------------------------------------------
 # Stopwords for keyword extraction
@@ -187,29 +205,30 @@ CREATE TABLE IF NOT EXISTS memories (
     tags TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    expires_at TEXT DEFAULT NULL
+    expires_at TEXT DEFAULT NULL,
+    title TEXT DEFAULT '',
+    subtitle TEXT DEFAULT '',
+    type TEXT DEFAULT 'change',
+    concepts TEXT DEFAULT '[]',
+    files_read TEXT DEFAULT '[]',
+    files_modified TEXT DEFAULT '[]',
+    session_id TEXT DEFAULT NULL,
+    project TEXT DEFAULT NULL,
+    accessed_count INTEGER DEFAULT 0,
+    discovery_tokens INTEGER DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_memories_content_hash ON memories(content_hash);
 CREATE INDEX IF NOT EXISTS idx_memories_expires_at ON memories(expires_at);
+CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(type);
+CREATE INDEX IF NOT EXISTS idx_memories_session_id ON memories(session_id);
+CREATE INDEX IF NOT EXISTS idx_memories_project ON memories(project);
+CREATE INDEX IF NOT EXISTS idx_memories_accessed ON memories(accessed_count);
 
-CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
-USING fts5(content, content='memories', content_rowid='rowid');
-
-CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
-    INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
-END;
-
-CREATE TRIGGER IF NOT EXISTS memories_ad AFTER DELETE ON memories BEGIN
-    INSERT INTO memories_fts(memories_fts, rowid, content)
-        VALUES('delete', old.rowid, old.content);
-END;
-
-CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
-    INSERT INTO memories_fts(memories_fts, rowid, content)
-        VALUES('delete', old.rowid, old.content);
-    INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
-END;
+CREATE TABLE IF NOT EXISTS schema_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS facts (
     id TEXT PRIMARY KEY,
@@ -240,11 +259,24 @@ CREATE INDEX IF NOT EXISTS idx_journal_timestamp ON memory_journal(timestamp);
 _MIGRATIONS_SQL = [
     "ALTER TABLE memories ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE memories ADD COLUMN expires_at TEXT DEFAULT NULL",
+    "ALTER TABLE memories ADD COLUMN title TEXT DEFAULT ''",
+    "ALTER TABLE memories ADD COLUMN subtitle TEXT DEFAULT ''",
+    "ALTER TABLE memories ADD COLUMN type TEXT DEFAULT 'change'",
+    "ALTER TABLE memories ADD COLUMN concepts TEXT DEFAULT '[]'",
+    "ALTER TABLE memories ADD COLUMN files_read TEXT DEFAULT '[]'",
+    "ALTER TABLE memories ADD COLUMN files_modified TEXT DEFAULT '[]'",
+    "ALTER TABLE memories ADD COLUMN session_id TEXT DEFAULT NULL",
+    "ALTER TABLE memories ADD COLUMN project TEXT DEFAULT NULL",
+    "ALTER TABLE memories ADD COLUMN accessed_count INTEGER DEFAULT 0",
+    "ALTER TABLE memories ADD COLUMN discovery_tokens INTEGER DEFAULT 0",
 ]
+
+# Current FTS version -- bump when FTS column set changes
+_FTS_VERSION = "2"
 
 
 # ---------------------------------------------------------------------------
-# MemoryStore — the storage engine (registered as capability)
+# MemoryStore -- the storage engine (registered as capability)
 # ---------------------------------------------------------------------------
 
 
@@ -256,8 +288,9 @@ class MemoryStore:
     can call ``search_v2`` directly.
     """
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, *, max_memories: int = 0) -> None:
         self._db_path = db_path
+        self._max_memories = max_memories  # 0 = no limit
         self._write_lock = threading.Lock()
         self._init_db()
 
@@ -268,13 +301,93 @@ class MemoryStore:
         conn = sqlite3.connect(str(self._db_path))
         try:
             conn.executescript(_SCHEMA_SQL)
-            # Apply migrations for existing databases
+            # Apply column migrations for existing databases
             for sql in _MIGRATIONS_SQL:
                 try:
                     conn.execute(sql)
                 except sqlite3.OperationalError:
                     pass  # column already exists
             conn.commit()
+        finally:
+            conn.close()
+        # Create or upgrade FTS index (separate step -- needs columns first)
+        self._ensure_fts()
+
+    def _ensure_fts(self) -> None:
+        """Create or upgrade the FTS5 index to cover content, title, subtitle."""
+        conn = sqlite3.connect(str(self._db_path))
+        try:
+            # Check current FTS version
+            try:
+                row = conn.execute(
+                    "SELECT value FROM schema_meta WHERE key = 'fts_version'"
+                ).fetchone()
+                current_version = row[0] if row else "0"
+            except sqlite3.OperationalError:
+                current_version = "0"
+
+            if current_version == _FTS_VERSION:
+                return  # Already up to date
+
+            logger.info(
+                "Upgrading FTS index from version %s to %s",
+                current_version,
+                _FTS_VERSION,
+            )
+
+            # Drop old triggers and FTS table
+            conn.execute("DROP TRIGGER IF EXISTS memories_ai")
+            conn.execute("DROP TRIGGER IF EXISTS memories_ad")
+            conn.execute("DROP TRIGGER IF EXISTS memories_au")
+            conn.execute("DROP TABLE IF EXISTS memories_fts")
+
+            # Create 3-column FTS5 table
+            conn.execute(
+                "CREATE VIRTUAL TABLE memories_fts "
+                "USING fts5(content, title, subtitle, "
+                "content='memories', content_rowid='rowid')"
+            )
+
+            # Create sync triggers
+            conn.execute(
+                "CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN "
+                "INSERT INTO memories_fts(rowid, content, title, subtitle) "
+                "VALUES (new.rowid, new.content, new.title, new.subtitle); "
+                "END"
+            )
+            conn.execute(
+                "CREATE TRIGGER memories_ad AFTER DELETE ON memories BEGIN "
+                "INSERT INTO memories_fts(memories_fts, rowid, content, title, subtitle) "
+                "VALUES('delete', old.rowid, old.content, old.title, old.subtitle); "
+                "END"
+            )
+            conn.execute(
+                "CREATE TRIGGER memories_au AFTER UPDATE ON memories BEGIN "
+                "INSERT INTO memories_fts(memories_fts, rowid, content, title, subtitle) "
+                "VALUES('delete', old.rowid, old.content, old.title, old.subtitle); "
+                "INSERT INTO memories_fts(rowid, content, title, subtitle) "
+                "VALUES (new.rowid, new.content, new.title, new.subtitle); "
+                "END"
+            )
+
+            # Populate FTS from existing data
+            conn.execute(
+                "INSERT INTO memories_fts(rowid, content, title, subtitle) "
+                "SELECT rowid, content, "
+                "COALESCE(title, ''), COALESCE(subtitle, '') "
+                "FROM memories"
+            )
+
+            # Record the version
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_meta (key, value) "
+                "VALUES ('fts_version', ?)",
+                (_FTS_VERSION,),
+            )
+            conn.commit()
+            logger.info("FTS5 index upgraded to version %s", _FTS_VERSION)
+        except Exception:
+            logger.exception("Failed to upgrade FTS index")
         finally:
             conn.close()
 
@@ -298,7 +411,7 @@ class MemoryStore:
         """Append an entry to the append-only ``memory_journal`` table.
 
         Called inside an existing write transaction so no extra locking is
-        needed.  Failures are logged but never raised — the journal must not
+        needed.  Failures are logged but never raised -- the journal must not
         break primary operations.
         """
         try:
@@ -327,6 +440,16 @@ class MemoryStore:
         sensitivity: str = "public",
         tags: list[str] | str | None = None,
         ttl_days: float | None = None,
+        *,
+        title: str = "",
+        subtitle: str = "",
+        type: str = "change",
+        concepts: list[str] | None = None,
+        files_read: list[str] | None = None,
+        files_modified: list[str] | None = None,
+        session_id: str | None = None,
+        project: str | None = None,
+        discovery_tokens: int = 0,
     ) -> str:
         """Store a new memory. Returns the new id.
 
@@ -347,6 +470,18 @@ class MemoryStore:
             expires_at = (
                 datetime.now(tz=timezone.utc) + timedelta(days=ttl_days)
             ).isoformat()
+
+        # Validate observation type
+        if type not in OBSERVATION_TYPES:
+            type = "change"
+
+        # Auto-generate title if not provided
+        if not title and content:
+            title = content[:80] + ("..." if len(content) > 80 else "")
+
+        concepts_json = json.dumps(concepts or [])
+        files_read_json = json.dumps(files_read or [])
+        files_modified_json = json.dumps(files_modified or [])
 
         with self._write_lock:
             conn = self._rw_connection()
@@ -369,7 +504,10 @@ class MemoryStore:
                 conn.execute(
                     "INSERT INTO memories (id, content, content_hash, category, "
                     "importance, trust, sensitivity, tags, created_at, updated_at, "
-                    "expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "expires_at, title, subtitle, type, concepts, files_read, "
+                    "files_modified, session_id, project, accessed_count, "
+                    "discovery_tokens) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         mem_id,
                         content,
@@ -382,16 +520,109 @@ class MemoryStore:
                         now,
                         now,
                         expires_at,
+                        title,
+                        subtitle,
+                        type,
+                        concepts_json,
+                        files_read_json,
+                        files_modified_json,
+                        session_id,
+                        project,
+                        0,
+                        discovery_tokens,
                     ),
                 )
                 self._journal(
                     conn, mem_id, "insert",
-                    f"category={category} sensitivity={sensitivity}",
+                    f"category={category} type={type} sensitivity={sensitivity}",
                 )
                 conn.commit()
             finally:
                 conn.close()
+
+        # Enforce max_memories limit
+        self._enforce_limit()
+
         return mem_id
+
+    def update(
+        self,
+        id: str,
+        *,
+        content: str | None = None,
+        title: str | None = None,
+        subtitle: str | None = None,
+        type: str | None = None,
+        concepts: list[str] | None = None,
+        files_read: list[str] | None = None,
+        files_modified: list[str] | None = None,
+        category: str | None = None,
+        importance: float | None = None,
+        tags: list[str] | None = None,
+        sensitivity: str | None = None,
+        trust: float | None = None,
+    ) -> dict[str, Any] | None:
+        """Update a memory in place.  Returns the updated dict, or None."""
+        now = datetime.now(tz=timezone.utc).isoformat()
+        updates: list[str] = ["updated_at = ?"]
+        params: list[Any] = [now]
+
+        if content is not None:
+            updates.append("content = ?")
+            params.append(content)
+            updates.append("content_hash = ?")
+            params.append(self._content_hash(content))
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
+        if subtitle is not None:
+            updates.append("subtitle = ?")
+            params.append(subtitle)
+        if type is not None and type in OBSERVATION_TYPES:
+            updates.append("type = ?")
+            params.append(type)
+        if concepts is not None:
+            updates.append("concepts = ?")
+            params.append(json.dumps(concepts))
+        if files_read is not None:
+            updates.append("files_read = ?")
+            params.append(json.dumps(files_read))
+        if files_modified is not None:
+            updates.append("files_modified = ?")
+            params.append(json.dumps(files_modified))
+        if category is not None:
+            updates.append("category = ?")
+            params.append(category)
+        if importance is not None:
+            updates.append("importance = ?")
+            params.append(max(0.0, min(1.0, importance)))
+        if tags is not None:
+            updates.append("tags = ?")
+            params.append(",".join(tags) if isinstance(tags, list) else tags)
+        if sensitivity is not None:
+            updates.append("sensitivity = ?")
+            params.append(sensitivity)
+        if trust is not None:
+            updates.append("trust = ?")
+            params.append(max(0.0, min(1.0, trust)))
+
+        params.append(id)
+        query = f"UPDATE memories SET {', '.join(updates)} WHERE id = ?"  # noqa: S608
+
+        with self._write_lock:
+            conn = self._rw_connection()
+            try:
+                cursor = conn.execute(query, params)
+                if cursor.rowcount == 0:
+                    return None
+                self._journal(conn, id, "update")
+                conn.commit()
+            finally:
+                conn.close()
+
+        # Return the updated memory
+        records = self.get([id])
+        return records[0] if records else None
 
     def purge_expired(self) -> int:
         """Delete all memories whose ``expires_at`` has passed.  Returns count."""
@@ -412,16 +643,36 @@ class MemoryStore:
             logger.info("Purged %d expired memories", deleted)
         return deleted
 
-    def get(self, ids: Sequence[str]) -> list[dict[str, Any]]:
-        """Get memories by id(s)."""
+    def get(self, ids: Sequence[str], *, _increment_access: bool = False) -> list[dict[str, Any]]:
+        """Get memories by id(s).  Optionally increment access count."""
         if not ids:
             return []
+        placeholders = ",".join("?" for _ in ids)
+        id_list = list(ids)
+
+        if _increment_access:
+            with self._write_lock:
+                conn = self._rw_connection()
+                try:
+                    conn.execute(
+                        "UPDATE memories SET accessed_count = accessed_count + 1 "
+                        f"WHERE id IN ({placeholders})",  # noqa: S608
+                        id_list,
+                    )
+                    conn.commit()
+                    cursor = conn.execute(
+                        f"SELECT * FROM memories WHERE id IN ({placeholders})",  # noqa: S608
+                        id_list,
+                    )
+                    return [dict(row) for row in cursor.fetchall()]
+                finally:
+                    conn.close()
+
         conn = self._ro_connection()
         try:
-            placeholders = ",".join("?" for _ in ids)
             cursor = conn.execute(
                 f"SELECT * FROM memories WHERE id IN ({placeholders})",  # noqa: S608
-                list(ids),
+                id_list,
             )
             return [dict(row) for row in cursor.fetchall()]
         finally:
@@ -445,8 +696,9 @@ class MemoryStore:
         conn = self._ro_connection()
         try:
             cursor = conn.execute(
-                "SELECT id, category, importance, trust, sensitivity, tags, "
-                "created_at, updated_at, "
+                "SELECT id, title, subtitle, type, category, importance, trust, "
+                "sensitivity, tags, concepts, session_id, project, "
+                "accessed_count, discovery_tokens, created_at, updated_at, "
                 "SUBSTR(content, 1, 100) AS content_preview "
                 "FROM memories ORDER BY updated_at DESC LIMIT ? OFFSET ?",
                 (limit, offset),
@@ -499,8 +751,15 @@ class MemoryStore:
         conn = self._ro_connection()
         now = datetime.now(tz=timezone.utc).isoformat()
         try:
-            conditions = " OR ".join(["content LIKE ?"] * len(keywords))
-            params: list[Any] = [f"%{kw}%" for kw in keywords]
+            # Search across content, title, and subtitle
+            field_conditions: list[str] = []
+            params: list[Any] = []
+            for kw in keywords:
+                field_conditions.append(
+                    "(content LIKE ? OR title LIKE ? OR subtitle LIKE ?)"
+                )
+                params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
+            conditions = " OR ".join(field_conditions)
             params.extend([now, limit])
             cursor = conn.execute(
                 f"SELECT * FROM memories WHERE ({conditions}) "  # noqa: S608
@@ -511,8 +770,12 @@ class MemoryStore:
             results: list[tuple[dict[str, Any], float]] = []
             for row in cursor.fetchall():
                 d = dict(row)
-                content_lower = d.get("content", "").lower()
-                hits = sum(1 for kw in keywords if kw in content_lower)
+                searchable = (
+                    (d.get("content") or "").lower()
+                    + " " + (d.get("title") or "").lower()
+                    + " " + (d.get("subtitle") or "").lower()
+                )
+                hits = sum(1 for kw in keywords if kw in searchable)
                 match_score = min(0.75, 0.15 + 0.15 * hits)
                 results.append((d, match_score))
             return results
@@ -604,6 +867,109 @@ class MemoryStore:
             gating=gating,
         )
         return [r["id"] for r in results]
+
+    # -- New search operations -----------------------------------------------
+
+    def search_by_file(self, file_path: str, *, limit: int = 10) -> list[dict[str, Any]]:
+        """Search memories by file path (in files_read or files_modified)."""
+        conn = self._ro_connection()
+        try:
+            pattern = f'%"{file_path}"%'
+            cursor = conn.execute(
+                "SELECT * FROM memories "
+                "WHERE files_read LIKE ? OR files_modified LIKE ? "
+                "ORDER BY updated_at DESC LIMIT ?",
+                (pattern, pattern, limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def search_by_concept(self, concept: str, *, limit: int = 10) -> list[dict[str, Any]]:
+        """Search memories by concept tag."""
+        conn = self._ro_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM memories "
+                "WHERE concepts LIKE ? "
+                "ORDER BY importance DESC, updated_at DESC LIMIT ?",
+                (f'%"{concept}"%', limit),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    def get_timeline(
+        self,
+        *,
+        limit: int = 50,
+        type: str | None = None,
+        project: str | None = None,
+        session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get memories ordered by creation date, optionally filtered."""
+        conditions: list[str] = []
+        params: list[Any] = []
+        now = datetime.now(tz=timezone.utc).isoformat()
+
+        conditions.append("(expires_at IS NULL OR expires_at > ?)")
+        params.append(now)
+
+        if type is not None:
+            conditions.append("type = ?")
+            params.append(type)
+        if project is not None:
+            conditions.append("project = ?")
+            params.append(project)
+        if session_id is not None:
+            conditions.append("session_id = ?")
+            params.append(session_id)
+
+        where = " AND ".join(conditions)
+        params.append(limit)
+
+        conn = self._ro_connection()
+        try:
+            cursor = conn.execute(
+                f"SELECT * FROM memories WHERE {where} "  # noqa: S608
+                "ORDER BY created_at DESC LIMIT ?",
+                params,
+            )
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            conn.close()
+
+    # -- Max memories eviction -----------------------------------------------
+
+    def _enforce_limit(self) -> None:
+        """Remove least-accessed + oldest memories if over max_memories cap.
+
+        Eviction priority: lowest accessed_count, then oldest updated_at,
+        then lowest importance.
+        """
+        if self._max_memories <= 0:
+            return
+        total = self.count()
+        if total <= self._max_memories:
+            return
+        to_remove = total - self._max_memories
+        with self._write_lock:
+            conn = self._rw_connection()
+            try:
+                conn.execute(
+                    "DELETE FROM memories WHERE id IN ("
+                    "SELECT id FROM memories "
+                    "ORDER BY accessed_count ASC, updated_at ASC, importance ASC "
+                    f"LIMIT {to_remove})",
+                )
+                conn.commit()
+                logger.info(
+                    "Evicted %d memories to stay under max_memories=%d",
+                    to_remove,
+                    self._max_memories,
+                )
+            finally:
+                conn.close()
 
     # -- Fact Store ----------------------------------------------------------
 
@@ -804,7 +1170,7 @@ class MemoryStore:
 
 
 # ---------------------------------------------------------------------------
-# MemoryTool — LLM-callable Amplifier Tool
+# MemoryTool -- LLM-callable Amplifier Tool
 # ---------------------------------------------------------------------------
 
 
@@ -821,9 +1187,11 @@ class MemoryTool:
     @property
     def description(self) -> str:
         return (
-            "Persistent memory store with structured fact triples and "
-            "summarization. Store, search, list, get, and delete memories "
-            "across sessions. Store and query subject/predicate/object facts. "
+            "Persistent memory store with rich observation metadata, structured "
+            "fact triples, file tracking, concept tagging, and summarization. "
+            "Store, search, list, get, update, and delete memories across "
+            "sessions. Search by file path or concept. Get timeline views. "
+            "Store and query subject/predicate/object facts. "
             "Summarize old memories to keep the store compact."
         )
 
@@ -840,7 +1208,11 @@ class MemoryTool:
                         "search_memories",
                         "list_memories",
                         "get_memory",
+                        "update_memory",
                         "delete_memory",
+                        "search_by_file",
+                        "search_by_concept",
+                        "get_timeline",
                         "purge_expired",
                         "store_fact",
                         "query_facts",
@@ -851,25 +1223,25 @@ class MemoryTool:
                 },
                 "content": {
                     "type": "string",
-                    "description": "Memory content (for store_memory).",
+                    "description": "Memory content (for store_memory, update_memory).",
                 },
                 "category": {
                     "type": "string",
-                    "description": "Category tag (for store_memory).",
+                    "description": "Category tag (for store_memory, update_memory).",
                 },
                 "importance": {
                     "type": "number",
-                    "description": "Importance 0-1 (for store_memory).",
+                    "description": "Importance 0-1 (for store_memory, update_memory).",
                 },
                 "sensitivity": {
                     "type": "string",
                     "enum": ["public", "private", "secret"],
-                    "description": "Sensitivity level (for store_memory).",
+                    "description": "Sensitivity level (for store_memory, update_memory).",
                 },
                 "tags": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Tags (for store_memory).",
+                    "description": "Tags (for store_memory, update_memory).",
                 },
                 "query": {
                     "type": "string",
@@ -877,11 +1249,11 @@ class MemoryTool:
                 },
                 "id": {
                     "type": "string",
-                    "description": "Memory id (for get_memory / delete_memory).",
+                    "description": "Memory id (for get_memory / update_memory / delete_memory).",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Max results (for search/list/query_facts).",
+                    "description": "Max results (for search/list/query_facts/timeline).",
                 },
                 "offset": {
                     "type": "integer",
@@ -898,6 +1270,77 @@ class MemoryTool:
                         "Memory expires and is excluded from search after this."
                     ),
                 },
+                # -- Rich metadata fields --
+                "title": {
+                    "type": "string",
+                    "description": "Short title for the memory (for store_memory, update_memory).",
+                },
+                "subtitle": {
+                    "type": "string",
+                    "description": (
+                        "Secondary description (for store_memory, update_memory)."
+                    ),
+                },
+                "type": {
+                    "type": "string",
+                    "enum": OBSERVATION_TYPES,
+                    "description": (
+                        "Observation type (for store_memory, update_memory, get_timeline). "
+                        "One of: bugfix, feature, refactor, change, discovery, decision."
+                    ),
+                },
+                "concepts": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": CONCEPT_TYPES},
+                    "description": (
+                        "Concept tags (for store_memory, update_memory). "
+                        "Values: how-it-works, why-it-exists, what-changed, "
+                        "problem-solution, gotcha, pattern, trade-off."
+                    ),
+                },
+                "files_read": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "File paths read during this observation "
+                        "(for store_memory, update_memory)."
+                    ),
+                },
+                "files_modified": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "File paths modified (for store_memory, update_memory)."
+                    ),
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": (
+                        "Session identifier (for store_memory, get_timeline)."
+                    ),
+                },
+                "project": {
+                    "type": "string",
+                    "description": (
+                        "Project identifier (for store_memory, get_timeline)."
+                    ),
+                },
+                "discovery_tokens": {
+                    "type": "integer",
+                    "description": (
+                        "Estimated token cost of the discovery (for store_memory)."
+                    ),
+                },
+                "file_path": {
+                    "type": "string",
+                    "description": "File path to search for (for search_by_file).",
+                },
+                "concept": {
+                    "type": "string",
+                    "enum": CONCEPT_TYPES,
+                    "description": "Concept to search for (for search_by_concept).",
+                },
+                # -- Fact fields (unchanged) --
                 "subject": {
                     "type": "string",
                     "description": (
@@ -966,6 +1409,15 @@ class MemoryTool:
                     sensitivity=input.get("sensitivity", "public"),
                     tags=input.get("tags"),
                     ttl_days=input.get("ttl_days"),
+                    title=input.get("title", ""),
+                    subtitle=input.get("subtitle", ""),
+                    type=input.get("type", "change"),
+                    concepts=input.get("concepts"),
+                    files_read=input.get("files_read"),
+                    files_modified=input.get("files_modified"),
+                    session_id=input.get("session_id"),
+                    project=input.get("project"),
+                    discovery_tokens=int(input.get("discovery_tokens", 0)),
                 )
                 return ToolResult(
                     success=True, output={"id": mem_id, "status": "stored"}
@@ -1003,13 +1455,47 @@ class MemoryTool:
                         success=False,
                         error={"message": "id is required for get_memory"},
                     )
-                records = self._store.get([mem_id])
+                records = self._store.get([mem_id], _increment_access=True)
                 if not records:
                     return ToolResult(
                         success=False,
                         error={"message": f"memory {mem_id} not found"},
                     )
                 return ToolResult(success=True, output=records[0])
+
+            if op == "update_memory":
+                mem_id = input.get("id", "")
+                if not mem_id:
+                    return ToolResult(
+                        success=False,
+                        error={"message": "id is required for update_memory"},
+                    )
+                importance_raw = input.get("importance")
+                trust_raw = input.get("trust")
+                updated = self._store.update(
+                    mem_id,
+                    content=input.get("content"),
+                    title=input.get("title"),
+                    subtitle=input.get("subtitle"),
+                    type=input.get("type"),
+                    concepts=input.get("concepts"),
+                    files_read=input.get("files_read"),
+                    files_modified=input.get("files_modified"),
+                    category=input.get("category"),
+                    importance=float(importance_raw) if importance_raw is not None else None,
+                    tags=input.get("tags"),
+                    sensitivity=input.get("sensitivity"),
+                    trust=float(trust_raw) if trust_raw is not None else None,
+                )
+                if updated is None:
+                    return ToolResult(
+                        success=False,
+                        error={"message": f"memory {mem_id} not found"},
+                    )
+                return ToolResult(
+                    success=True,
+                    output={"memory": updated, "status": "updated"},
+                )
 
             if op == "delete_memory":
                 mem_id = input.get("id", "")
@@ -1020,6 +1506,56 @@ class MemoryTool:
                     )
                 deleted = self._store.delete(mem_id)
                 return ToolResult(success=True, output={"deleted": deleted})
+
+            if op == "search_by_file":
+                file_path = input.get("file_path", "")
+                if not file_path:
+                    return ToolResult(
+                        success=False,
+                        error={"message": "file_path is required for search_by_file"},
+                    )
+                results = self._store.search_by_file(
+                    file_path, limit=int(input.get("limit", 10))
+                )
+                return ToolResult(
+                    success=True,
+                    output={
+                        "file_path": file_path,
+                        "results": results,
+                        "count": len(results),
+                    },
+                )
+
+            if op == "search_by_concept":
+                concept = input.get("concept", "")
+                if not concept:
+                    return ToolResult(
+                        success=False,
+                        error={"message": "concept is required for search_by_concept"},
+                    )
+                results = self._store.search_by_concept(
+                    concept, limit=int(input.get("limit", 10))
+                )
+                return ToolResult(
+                    success=True,
+                    output={
+                        "concept": concept,
+                        "results": results,
+                        "count": len(results),
+                    },
+                )
+
+            if op == "get_timeline":
+                results = self._store.get_timeline(
+                    limit=int(input.get("limit", 50)),
+                    type=input.get("type"),
+                    project=input.get("project"),
+                    session_id=input.get("session_id"),
+                )
+                return ToolResult(
+                    success=True,
+                    output={"memories": results, "count": len(results)},
+                )
 
             if op == "purge_expired":
                 count = self._store.purge_expired()
@@ -1107,8 +1643,9 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> None:
     """Mount tool-memory-store: register as Tool and as memory.store capability."""
     cfg = config or {}
     db_path = Path(cfg.get("db_path", "~/.letsgo/memories.db")).expanduser()
+    max_memories = int(cfg.get("max_memories", 0))
 
-    store = MemoryStore(db_path)
+    store = MemoryStore(db_path, max_memories=max_memories)
     tool = MemoryTool(store)
 
     # Register as Tool (LLM-callable)
@@ -1117,4 +1654,8 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> None:
     # Register as capability (so hooks-memory-inject auto-discovers it)
     coordinator.register_capability("memory.store", store)
 
-    logger.info("tool-memory-store mounted (db: %s)", db_path)
+    logger.info(
+        "tool-memory-store mounted (db: %s, max_memories: %s)",
+        db_path,
+        max_memories if max_memories > 0 else "unlimited",
+    )

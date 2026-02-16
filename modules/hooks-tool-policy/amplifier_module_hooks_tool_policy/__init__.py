@@ -39,6 +39,20 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Path resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_base_dir(config: dict) -> Path:
+    """Resolve base directory: config > LETSGO_HOME env > ~/.letsgo default."""
+    if base := config.get("base_dir"):
+        return Path(base).expanduser()
+    if env := os.environ.get("LETSGO_HOME"):
+        return Path(env).expanduser()
+    return Path("~/.letsgo").expanduser()
+
+
+# ---------------------------------------------------------------------------
 # Policy engine
 # ---------------------------------------------------------------------------
 
@@ -71,8 +85,9 @@ class ToolPolicyHook:
         self.sandbox_mode: str = config.get("sandbox_mode", "enforce")
 
         # Audit
+        base = _resolve_base_dir(config)
         self.audit_log_path: Path = Path(
-            config.get("audit_log_path", "~/.letsgo/logs/tool-policy-audit.jsonl")
+            config.get("audit_log_path", str(base / "logs" / "tool-policy-audit.jsonl"))
         ).expanduser()
 
     # -- risk classification ------------------------------------------------

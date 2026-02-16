@@ -86,6 +86,20 @@ _HANDLE_PREFIX = "sec_"
 
 
 # ---------------------------------------------------------------------------
+# Path resolution
+# ---------------------------------------------------------------------------
+
+
+def _resolve_base_dir(config: dict) -> Path:
+    """Resolve base directory: config > LETSGO_HOME env > ~/.letsgo default."""
+    if base := config.get("base_dir"):
+        return Path(base).expanduser()
+    if env := os.environ.get("LETSGO_HOME"):
+        return Path(env).expanduser()
+    return Path("~/.letsgo").expanduser()
+
+
+# ---------------------------------------------------------------------------
 # Encrypted store
 # ---------------------------------------------------------------------------
 
@@ -414,7 +428,8 @@ def _resolve_passphrase(config: dict[str, Any]) -> str:
         logger.debug("Using passphrase from environment variable %s", env_var)
         return passphrase
 
-    key_path = Path(config.get("key_path", DEFAULT_KEY_PATH)).expanduser()
+    base = _resolve_base_dir(config)
+    key_path = Path(config.get("key_path", str(base / "secrets.key"))).expanduser()
 
     if key_path.exists():
         passphrase = key_path.read_text(encoding="utf-8").strip()
@@ -458,7 +473,8 @@ def _resolve_salt(config: dict[str, Any]) -> bytes:
     If the salt file cannot be created (e.g. read-only FS), falls back to the
     hardcoded module-scoped salt for backward compatibility.
     """
-    salt_path = Path(config.get("salt_path", DEFAULT_SALT_PATH)).expanduser()
+    base = _resolve_base_dir(config)
+    salt_path = Path(config.get("salt_path", str(base / "secrets.salt"))).expanduser()
 
     if salt_path.exists():
         raw = salt_path.read_bytes()
@@ -739,14 +755,15 @@ async def mount(
         Lifetime of secret handles in seconds.  Default: 300 (5 min).
     """
     config = config or {}
+    base = _resolve_base_dir(config)
 
     passphrase = _resolve_passphrase(config)
     salt = _resolve_salt(config)
     storage_path = Path(
-        config.get("storage_path", DEFAULT_STORAGE_PATH),
+        config.get("storage_path", str(base / "secrets.enc")),
     ).expanduser()
     audit_path = Path(
-        config.get("audit_log", DEFAULT_AUDIT_LOG),
+        config.get("audit_log", str(base / "logs" / "secrets-audit.jsonl")),
     ).expanduser()
 
     handle_ttl = int(config.get("handle_ttl", _HANDLE_TTL_SECONDS))
