@@ -5,6 +5,6 @@ bundle:
 
 hooks:
   - module: hooks-telemetry
-    source: ./modules/hooks-telemetry
+    source: ../modules/hooks-telemetry
     config:
       metrics_path: ~/.letsgo/logs/telemetry.jsonl

@@ -5,6 +5,6 @@ bundle:
 
 tools:
   - module: tool-memory-store
-    source: ./modules/tool-memory-store
+    source: ../modules/tool-memory-store
     config:
       db_path: ~/.letsgo/memories.db

@@ -5,7 +5,7 @@ bundle:
 
 tools:
   - module: tool-sandbox
-    source: ./modules/tool-sandbox
+    source: ../modules/tool-sandbox
     config:
       runtime: docker
       image: letsgo-sandbox:latest

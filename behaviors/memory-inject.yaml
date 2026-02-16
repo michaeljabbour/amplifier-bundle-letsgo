@@ -5,7 +5,7 @@ bundle:
 
 hooks:
   - module: hooks-memory-inject
-    source: ./modules/hooks-memory-inject
+    source: ../modules/hooks-memory-inject
     config:
       memory_db_path: ~/.letsgo/memories.db
       max_memories: 5

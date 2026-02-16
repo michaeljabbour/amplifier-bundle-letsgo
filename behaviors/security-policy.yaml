@@ -5,7 +5,7 @@ bundle:
 
 hooks:
   - module: hooks-tool-policy
-    source: ./modules/hooks-tool-policy
+    source: ../modules/hooks-tool-policy
     config:
       risk_classification:
         high:
