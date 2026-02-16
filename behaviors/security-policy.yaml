@@ -24,7 +24,8 @@ hooks:
       allowed_commands: []
       allowed_write_paths: []
       sandbox_mode: enforce
-      audit_log_path: ~/.letsgo/logs/tool-policy-audit.jsonl
+      # audit_log_path resolved via _resolve_base_dir:
+      # config.base_dir > LETSGO_HOME env > ~/.letsgo
 
 context:
   include:

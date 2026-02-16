@@ -7,7 +7,8 @@ hooks:
   - module: hooks-memory-inject
     source: ../modules/hooks-memory-inject
     config:
-      memory_db_path: ~/.letsgo/memories.db
+      # memory_db_path resolved via _resolve_base_dir:
+      # config.base_dir > LETSGO_HOME env > ~/.letsgo
       max_memories: 5
       max_injection_tokens: 2000
       enabled: true

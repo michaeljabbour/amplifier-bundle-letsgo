@@ -6,8 +6,8 @@ bundle:
 hooks:
   - module: hooks-telemetry
     source: ../modules/hooks-telemetry
-    config:
-      metrics_path: ~/.letsgo/logs/telemetry.jsonl
+    # metrics_path resolved via _resolve_base_dir:
+    # config.base_dir > LETSGO_HOME env > ~/.letsgo
 
 context:
   include:
