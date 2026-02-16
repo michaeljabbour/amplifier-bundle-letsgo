@@ -1,7 +1,7 @@
 bundle:
   name: behavior-memory-inject
-  version: 1.0.0
-  description: Auto-inject relevant memories into agent context at prompt time
+  version: 1.1.0
+  description: Auto-inject relevant memories into agent context at prompt time (scored + governed)
 
 hooks:
   - module: hooks-memory-inject
@@ -11,6 +11,19 @@ hooks:
       max_memories: 5
       max_injection_tokens: 2000
       enabled: true
+
+      # Relevance scoring (JAKE: computed, not assumed)
+      min_score: 0.35
+      half_life_days: 21.0
+      weights:
+        match: 0.55
+        recency: 0.20
+        importance: 0.15
+        trust: 0.10
+
+      # Read-time governor gates
+      allow_private: false
+      allow_secret: false
 
 context:
   include:
