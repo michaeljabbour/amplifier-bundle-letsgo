@@ -168,7 +168,7 @@ def _allow_by_sensitivity(
         return allow_private
     if sensitivity == "secret":
         return allow_secret
-    return True  # unknown levels default to allowed
+    return False  # unknown levels are denied (fail-closed)
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +224,16 @@ CREATE TABLE IF NOT EXISTS facts (
 );
 CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject);
 CREATE INDEX IF NOT EXISTS idx_facts_predicate ON facts(predicate);
+
+CREATE TABLE IF NOT EXISTS memory_journal (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    memory_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    detail TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_journal_memory_id ON memory_journal(memory_id);
+CREATE INDEX IF NOT EXISTS idx_journal_timestamp ON memory_journal(timestamp);
 """
 
 # Migration: add columns if upgrading from older schema
@@ -280,6 +290,27 @@ class MemoryStore:
         conn.row_factory = sqlite3.Row
         return conn
 
+    # -- journal ------------------------------------------------------------
+
+    def _journal(
+        self, conn: sqlite3.Connection, memory_id: str, operation: str, detail: str = ""
+    ) -> None:
+        """Append an entry to the append-only ``memory_journal`` table.
+
+        Called inside an existing write transaction so no extra locking is
+        needed.  Failures are logged but never raised — the journal must not
+        break primary operations.
+        """
+        try:
+            now = datetime.now(tz=timezone.utc).isoformat()
+            conn.execute(
+                "INSERT INTO memory_journal (memory_id, operation, timestamp, detail) "
+                "VALUES (?, ?, ?, ?)",
+                (memory_id, operation, now, detail[:500]),
+            )
+        except Exception:
+            logger.debug("journal write failed for %s/%s", operation, memory_id, exc_info=True)
+
     # -- CRUD ---------------------------------------------------------------
 
     @staticmethod
@@ -330,6 +361,7 @@ class MemoryStore:
                         "UPDATE memories SET updated_at = ? WHERE id = ?",
                         (now, existing["id"]),
                     )
+                    self._journal(conn, existing["id"], "dedup_refresh")
                     conn.commit()
                     logger.debug("Dedup hit: refreshed memory %s", existing["id"])
                     return existing["id"]
@@ -351,6 +383,10 @@ class MemoryStore:
                         now,
                         expires_at,
                     ),
+                )
+                self._journal(
+                    conn, mem_id, "insert",
+                    f"category={category} sensitivity={sensitivity}",
                 )
                 conn.commit()
             finally:
@@ -397,6 +433,8 @@ class MemoryStore:
             conn = self._rw_connection()
             try:
                 cursor = conn.execute("DELETE FROM memories WHERE id = ?", (id,))
+                if cursor.rowcount > 0:
+                    self._journal(conn, id, "delete")
                 conn.commit()
                 return cursor.rowcount > 0
             finally:

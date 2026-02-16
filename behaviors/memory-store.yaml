@@ -1,6 +1,6 @@
 bundle:
   name: behavior-memory-store
-  version: 1.0.0
+  version: 1.1.0
   description: Durable memory store with SQLite, FTS5, scored search, and governance
 
 tools:
@@ -8,3 +8,7 @@ tools:
     source: ../modules/tool-memory-store
     config:
       db_path: ~/.letsgo/memories.db
+
+context:
+  include:
+    - letsgo:context/memory-store-awareness.md

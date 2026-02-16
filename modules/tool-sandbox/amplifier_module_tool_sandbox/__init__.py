@@ -7,6 +7,14 @@ resource limits, and output truncation.
 Sandbox strategy (layered fallback):
   1. Docker — ephemeral container with memory/cpu limits and network isolation
   2. Native — restricted subprocess with minimal PATH and stripped environment
+
+Security controls:
+  - ``native_fallback`` — "deny" (refuse), "warn" (execute with warning),
+    or "allow" (silent fallback).  Default: ``"warn"``.
+  - ``mount_mode`` — Docker volume mount mode: ``"ro"`` (read-only, default)
+    or ``"rw"`` (read-write).
+  - ``workdir`` is validated and resolved to prevent path traversal.
+  - Network mode is restricted to ``"none"`` only.
 """
 
 from __future__ import annotations
@@ -17,6 +25,7 @@ import os
 import shutil
 import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 from amplifier_core.models import ToolResult
@@ -36,6 +45,9 @@ _DEFAULT_NETWORK = "none"
 _DEFAULT_TIMEOUT = 120
 _DEFAULT_MAX_OUTPUT_BYTES = 1_048_576  # 1 MB
 _NATIVE_PATH = "/usr/local/bin:/usr/bin:/bin"
+_ALLOWED_NETWORKS = frozenset({"none"})
+_ALLOWED_NATIVE_FALLBACK = frozenset({"deny", "warn", "allow"})
+_ALLOWED_MOUNT_MODES = frozenset({"ro", "rw"})
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +95,15 @@ class SandboxTool:
     Prefers Docker when available; falls back to a restricted native
     subprocess otherwise.  All executions are subject to a hard timeout,
     output size cap, and environment stripping.
+
+    Security controls:
+      - ``native_fallback`` controls behavior when Docker is unavailable:
+        ``"deny"`` refuses execution, ``"warn"`` executes with a warning
+        (default), ``"allow"`` silently falls back.
+      - ``mount_mode`` controls Docker volume permissions: ``"ro"``
+        (read-only, default) or ``"rw"`` (read-write).
+      - ``workdir`` is validated against path traversal.
+      - Network mode is restricted to ``"none"`` only.
     """
 
     def __init__(
@@ -95,6 +116,8 @@ class SandboxTool:
         default_network: str = _DEFAULT_NETWORK,
         timeout_seconds: int = _DEFAULT_TIMEOUT,
         max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
+        native_fallback: str = "warn",
+        mount_mode: str = "ro",
     ) -> None:
         self._docker_available = docker_available
         self._image = image
@@ -103,6 +126,21 @@ class SandboxTool:
         self._default_network = default_network
         self._timeout_seconds = timeout_seconds
         self._max_output_bytes = max_output_bytes
+
+        # Security controls
+        if native_fallback not in _ALLOWED_NATIVE_FALLBACK:
+            raise ValueError(
+                f"native_fallback must be one of {sorted(_ALLOWED_NATIVE_FALLBACK)}, "
+                f"got {native_fallback!r}"
+            )
+        self._native_fallback = native_fallback
+
+        if mount_mode not in _ALLOWED_MOUNT_MODES:
+            raise ValueError(
+                f"mount_mode must be one of {sorted(_ALLOWED_MOUNT_MODES)}, "
+                f"got {mount_mode!r}"
+            )
+        self._mount_mode = mount_mode
 
     # -- Tool protocol ------------------------------------------------------
 
@@ -139,8 +177,9 @@ class SandboxTool:
                 },
                 "network": {
                     "type": "string",
-                    "enum": ["none", "host"],
-                    "description": "Docker network mode. Ignored in native fallback.",
+                    "enum": ["none"],
+                    "description": "Docker network mode. Only 'none' (isolated)"
+                    " is permitted.",
                 },
                 "workdir": {
                     "type": "string",
@@ -174,6 +213,8 @@ class SandboxTool:
             output={
                 "sandbox_type": sandbox_type,
                 "docker_available": self._docker_available,
+                "native_fallback": self._native_fallback,
+                "mount_mode": self._mount_mode if self._docker_available else None,
                 "image": self._image if self._docker_available else None,
                 "memory_limit": self._memory_limit if self._docker_available else None,
                 "cpu_limit": self._cpu_limit if self._docker_available else None,
@@ -184,6 +225,27 @@ class SandboxTool:
                 "max_output_bytes": self._max_output_bytes,
             },
         )
+
+    @staticmethod
+    def _validate_workdir(workdir: str) -> str | None:
+        """Resolve *workdir* and reject path-traversal attempts.
+
+        Returns the resolved absolute path string, or ``None`` if the
+        path is invalid (contains ``..`` after resolution, does not exist,
+        or is not a directory).
+        """
+        try:
+            resolved = str(Path(workdir).resolve())
+        except (OSError, ValueError):
+            return None
+        # Reject if the raw input contained ".." sequences that could
+        # indicate traversal intent, even if resolve() normalised them.
+        if ".." in workdir:
+            logger.warning("sandbox: rejected workdir with '..' sequence: %s", workdir)
+            return None
+        if not Path(resolved).is_dir():
+            return None
+        return resolved
 
     async def _handle_execute(self, input: dict[str, Any]) -> ToolResult:
         command = input.get("command")
@@ -200,11 +262,70 @@ class SandboxTool:
         network = input.get("network", self._default_network)
         workdir = input.get("workdir")
 
+        # Validate network mode — only isolated networking is allowed.
+        if network not in _ALLOWED_NETWORKS:
+            return ToolResult(
+                success=False,
+                error={
+                    "message": f"Network mode {network!r} is not allowed. "
+                    f"Permitted values: {sorted(_ALLOWED_NETWORKS)}.",
+                },
+            )
+
+        # Validate and sanitise workdir.
+        if workdir is not None:
+            validated = self._validate_workdir(workdir)
+            if validated is None:
+                return ToolResult(
+                    success=False,
+                    error={
+                        "message": "Invalid workdir: must be an existing directory "
+                        "without path-traversal sequences.",
+                    },
+                )
+            workdir = validated
+
         if self._docker_available:
             return await self._run_docker(
                 command, timeout=timeout, network=network, workdir=workdir
             )
-        return await self._run_native(command, timeout=timeout, workdir=workdir)
+
+        # -- Native fallback gated by policy --------------------------------
+        if self._native_fallback == "deny":
+            logger.warning(
+                "sandbox: Docker unavailable and native_fallback='deny' — "
+                "refusing execution"
+            )
+            return ToolResult(
+                success=False,
+                error={
+                    "message": "Docker is not available and native_fallback='deny'. "
+                    "Sandbox execution refused — native mode provides only "
+                    "timeout enforcement and environment stripping, not full "
+                    "resource isolation.  Install Docker or set "
+                    "native_fallback='warn' to proceed with reduced isolation.",
+                    "sandbox_type": "none",
+                },
+            )
+
+        if self._native_fallback == "warn":
+            logger.warning(
+                "sandbox: Docker unavailable — executing in native mode "
+                "with LIMITED isolation"
+            )
+
+        result = await self._run_native(command, timeout=timeout, workdir=workdir)
+
+        # Inject a warning into the output for 'warn' mode.
+        if self._native_fallback == "warn" and isinstance(result.output, dict):
+            result.output["isolation_warning"] = (
+                "Executed in native mode (no Docker).  Native sandbox provides "
+                "only timeout enforcement and environment stripping — no memory, "
+                "CPU, or network isolation.  Consider installing Docker for "
+                "full sandboxing."
+            )
+
+        return result
 
     # -- Docker execution ---------------------------------------------------
 
@@ -227,7 +348,7 @@ class SandboxTool:
             f"--cpus={self._cpu_limit}",
             f"--network={network}",
             "-v",
-            f"{host_cwd}:{container_workdir}:rw",
+            f"{host_cwd}:{container_workdir}:{self._mount_mode}",
             "-w",
             container_workdir,
             self._image,
@@ -237,9 +358,11 @@ class SandboxTool:
         ]
 
         logger.info(
-            "sandbox.docker: executing command (timeout=%ds, network=%s, image=%s)",
+            "sandbox.docker: executing command (timeout=%ds, network=%s, "
+            "mount=%s, image=%s)",
             timeout,
             network,
+            self._mount_mode,
             self._image,
         )
 
@@ -420,15 +543,19 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> None:
         default_network   Docker network mode (default: none)
         timeout_seconds   Max seconds per execution (default: 120)
         max_output_bytes  Truncate output beyond this size (default: 1 MB)
+        native_fallback   "deny" | "warn" | "allow" (default: "warn")
+        mount_mode        Docker volume mount mode: "ro" | "rw" (default: "ro")
     """
     config = config or {}
 
     docker_available = await _check_docker_available()
+    native_fallback = config.get("native_fallback", "warn")
     sandbox_type = "docker" if docker_available else "native"
     logger.info(
-        "tool-sandbox: Docker %s — using %s sandbox",
+        "tool-sandbox: Docker %s — using %s sandbox (native_fallback=%s)",
         "available" if docker_available else "unavailable",
         sandbox_type,
+        native_fallback,
     )
 
     tool = SandboxTool(
@@ -439,7 +566,13 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> None:
         default_network=config.get("default_network", _DEFAULT_NETWORK),
         timeout_seconds=int(config.get("timeout_seconds", _DEFAULT_TIMEOUT)),
         max_output_bytes=int(config.get("max_output_bytes", _DEFAULT_MAX_OUTPUT_BYTES)),
+        native_fallback=native_fallback,
+        mount_mode=config.get("mount_mode", "ro"),
     )
 
     await coordinator.mount("tools", tool, name="tool-sandbox")
-    logger.info("tool-sandbox: mounted (sandbox_type=%s)", sandbox_type)
+    logger.info(
+        "tool-sandbox: mounted (sandbox_type=%s, mount_mode=%s)",
+        sandbox_type,
+        tool._mount_mode,
+    )

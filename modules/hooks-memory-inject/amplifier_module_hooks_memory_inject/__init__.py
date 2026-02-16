@@ -63,7 +63,7 @@ def _allow_by_sensitivity(
         return allow_private
     if sensitivity == "secret":
         return allow_secret
-    return True  # unknown levels default to allowed
+    return False  # unknown levels are denied (fail-closed)
 
 
 # ---------------------------------------------------------------------------

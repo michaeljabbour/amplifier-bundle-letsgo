@@ -1,6 +1,6 @@
 bundle:
   name: behavior-observability
-  version: 1.0.0
+  version: 1.1.0
   description: Telemetry, metrics collection, and session health monitoring
 
 hooks:
@@ -8,3 +8,7 @@ hooks:
     source: ../modules/hooks-telemetry
     config:
       metrics_path: ~/.letsgo/logs/telemetry.jsonl
+
+context:
+  include:
+    - letsgo:context/observability-awareness.md

@@ -28,6 +28,7 @@ __amplifier_module_type__ = "hook"
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -121,21 +122,61 @@ class ToolPolicyHook:
 
     # -- allowlist checks ---------------------------------------------------
 
+    @staticmethod
+    def _prefix_match(value: str, prefix: str) -> bool:
+        """Return ``True`` if *value* starts with *prefix* at a word boundary.
+
+        A word boundary means the character immediately after the prefix is
+        a space, path separator, end-of-string, or other non-alphanumeric
+        character.  This prevents ``"git"`` from matching ``"gitevil"``.
+
+        When the prefix itself already ends with a non-alphanumeric character
+        (e.g. ``"echo "`` with a trailing space), the boundary is built in
+        and any continuation is accepted.
+        """
+        if not value.startswith(prefix):
+            return False
+        # Exact match — always accept.
+        if len(value) == len(prefix):
+            return True
+        # If the prefix already ends with a non-alnum char (e.g. "echo "),
+        # the word boundary is built into the prefix itself.
+        if prefix and not prefix[-1].isalnum():
+            return True
+        # Otherwise require a word boundary after the prefix.
+        next_char = value[len(prefix)]
+        return not next_char.isalnum() and next_char != "-"
+
     def _command_matches_allowlist(self, tool_input: dict[str, Any]) -> bool:
-        """Return ``True`` if the bash command starts with an allowed prefix."""
+        """Return ``True`` if the bash command starts with an allowed prefix.
+
+        Uses word-boundary matching so ``allowed_commands: ["git"]`` matches
+        ``"git status"`` but not ``"gitevil --steal"``.
+        """
         if not self.allowed_commands:
             return False
         command: str = tool_input.get("command", "")
-        return any(command.startswith(prefix) for prefix in self.allowed_commands)
+        return any(self._prefix_match(command, prefix) for prefix in self.allowed_commands)
 
     def _path_matches_allowlist(self, tool_input: dict[str, Any]) -> bool:
-        """Return ``True`` if the target file path falls under an allowed prefix."""
+        """Return ``True`` if the target file path falls under an allowed directory.
+
+        Paths are resolved (normalised) before comparison to prevent traversal
+        attacks such as ``/tmp/safe/../../etc/passwd``.
+        """
         if not self.allowed_write_paths:
             return False
-        path: str = tool_input.get("file_path", "") or tool_input.get("path", "")
-        if not path:
+        raw_path: str = tool_input.get("file_path", "") or tool_input.get("path", "")
+        if not raw_path:
             return False
-        return any(path.startswith(prefix) for prefix in self.allowed_write_paths)
+        try:
+            resolved = os.path.realpath(raw_path)
+        except (OSError, ValueError):
+            return False
+        return any(
+            resolved.startswith(os.path.realpath(prefix))
+            for prefix in self.allowed_write_paths
+        )
 
     @staticmethod
     def _is_write_operation(tool_input: dict[str, Any]) -> bool:

@@ -200,16 +200,25 @@ async def test_mount_registers_hooks_and_capability(
     config = {"metrics_path": str(tmp_path / "telemetry.jsonl")}
     await mount(mock_coordinator, config)
 
-    # Should register 6 hooks (session:start, session:end, tool:pre/post/error, provider:response)
-    assert len(mock_coordinator.hooks.registrations) == 6
+    # Should register 7 hooks (session:start/end, prompt:submit, tool:pre/post/error, provider:response)
+    assert len(mock_coordinator.hooks.registrations) == 7
 
     events = {r["event"] for r in mock_coordinator.hooks.registrations}
     assert "session:start" in events
     assert "session:end" in events
+    assert "prompt:submit" in events
     assert "tool:pre" in events
     assert "tool:post" in events
     assert "tool:error" in events
     assert "provider:response" in events
+
+    # tool:pre should be at priority 1 (before policy at 5)
+    tool_pre_reg = [r for r in mock_coordinator.hooks.registrations if r["event"] == "tool:pre"]
+    assert tool_pre_reg[0]["priority"] == 1
+
+    # prompt:submit and other events should be at priority 90
+    prompt_reg = [r for r in mock_coordinator.hooks.registrations if r["event"] == "prompt:submit"]
+    assert prompt_reg[0]["priority"] == 90
 
     # Capability should be registered
     assert "telemetry.metrics" in mock_coordinator.capabilities

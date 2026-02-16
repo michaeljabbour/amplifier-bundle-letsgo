@@ -3,10 +3,15 @@
 Tracks tool invocations, provider token usage, durations, and error rates.
 Writes metrics to JSONL and exposes a `telemetry.metrics` capability for
 other modules to query live stats.
+
+Event completeness: logs prompt hashes (not content) and redacted tool
+input/output summaries so that sessions can be reconstructed for replay
+without exposing sensitive data.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import time
@@ -100,13 +105,36 @@ class TelemetryCollector:
             user_message_level="info",
         )
 
+    async def on_prompt_submit(self, event: str, data: dict[str, Any]) -> HookResult:
+        """Log a SHA-256 hash of the prompt for replay correlation.
+
+        The full prompt is never logged — only a deterministic hash so that
+        replayed sessions can verify they are feeding the same inputs.
+        """
+        prompt_text = data.get("prompt", "") or ""
+        prompt_hash = hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()
+        self._write_event(
+            "prompt_submit",
+            {
+                "prompt_hash": prompt_hash,
+                "prompt_length": len(prompt_text),
+            },
+        )
+        return HookResult(action="continue")
+
     async def on_tool_pre(self, event: str, data: dict[str, Any]) -> HookResult:
         tool_name = data.get("tool_name", "unknown")
         call_id = data.get("tool_call_id", "")
         self._tool_call_counts[tool_name] += 1
         if call_id:
             self._tool_timers[call_id] = time.monotonic()
-        self._write_event("tool_pre", {"tool_name": tool_name, "call_id": call_id})
+        # Log a redacted summary of tool input for replay (never full payloads).
+        tool_input = data.get("tool_input", {})
+        input_summary = _redacted_summary(tool_input)
+        self._write_event(
+            "tool_pre",
+            {"tool_name": tool_name, "call_id": call_id, "input_summary": input_summary},
+        )
         return HookResult(action="continue")
 
     async def on_tool_post(self, event: str, data: dict[str, Any]) -> HookResult:
@@ -117,9 +145,17 @@ class TelemetryCollector:
             elapsed = time.monotonic() - self._tool_timers.pop(call_id)
             duration_ms = round(elapsed * 1000, 2)
             self._tool_durations_ms[tool_name].append(duration_ms)
+        # Log a redacted summary of tool output for replay.
+        tool_output = data.get("tool_output", data.get("result", {}))
+        output_summary = _redacted_summary(tool_output)
         self._write_event(
             "tool_post",
-            {"tool_name": tool_name, "call_id": call_id, "duration_ms": duration_ms},
+            {
+                "tool_name": tool_name,
+                "call_id": call_id,
+                "duration_ms": duration_ms,
+                "output_summary": output_summary,
+            },
         )
         return HookResult(action="continue")
 
@@ -187,6 +223,31 @@ def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
+def _redacted_summary(obj: Any, *, max_len: int = 200) -> dict[str, Any]:
+    """Build a short, redacted summary of a tool input/output dict.
+
+    Returns top-level keys with value *types* and truncated string previews.
+    Never includes full payloads — sufficient for replay correlation without
+    leaking sensitive content.
+    """
+    if not isinstance(obj, dict):
+        return {"_type": type(obj).__name__}
+    summary: dict[str, Any] = {}
+    for key, val in obj.items():
+        if isinstance(val, str):
+            preview = val[:max_len] + ("…" if len(val) > max_len else "")
+            summary[key] = {"type": "str", "len": len(val), "preview": preview}
+        elif isinstance(val, (int, float, bool)):
+            summary[key] = val
+        elif isinstance(val, dict):
+            summary[key] = {"type": "dict", "keys": list(val.keys())[:10]}
+        elif isinstance(val, list):
+            summary[key] = {"type": "list", "len": len(val)}
+        else:
+            summary[key] = {"type": type(val).__name__}
+    return summary
+
+
 def _stats(values: list[float]) -> dict[str, float]:
     """Compute min / max / mean / p95 for a list of durations."""
     if not values:
@@ -210,6 +271,7 @@ def _stats(values: list[float]) -> dict[str, float]:
 _EVENT_MAP: list[tuple[str, str]] = [
     ("session:start", "on_session_start"),
     ("session:end", "on_session_end"),
+    ("prompt:submit", "on_prompt_submit"),
     ("tool:pre", "on_tool_pre"),
     ("tool:post", "on_tool_post"),
     ("tool:error", "on_tool_error"),
@@ -230,10 +292,14 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> None:
 
     for event_name, method_name in _EVENT_MAP:
         handler = getattr(collector, method_name)
+        # tool:pre runs at priority 1 so telemetry counts ALL tool call
+        # attempts — including those later denied by tool-policy (priority 5).
+        # All other events stay at priority 90 (post-execution observation).
+        priority = 1 if event_name == "tool:pre" else 90
         coordinator.hooks.register(
             event=event_name,
             handler=handler,
-            priority=90,
+            priority=priority,
             name=f"telemetry.{method_name}",
         )
 
