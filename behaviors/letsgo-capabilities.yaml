@@ -1,0 +1,10 @@
+bundle:
+  name: behavior-letsgo-capabilities
+  version: 1.0.0
+  description: All LetsGo capability enhancements — security, secrets, sandbox, observability
+
+includes:
+  - bundle: letsgo:behaviors/security-policy
+  - bundle: letsgo:behaviors/secrets
+  - bundle: letsgo:behaviors/sandbox
+  - bundle: letsgo:behaviors/observability

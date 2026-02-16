@@ -1,0 +1,21 @@
+bundle:
+  name: behavior-sandbox
+  version: 1.0.0
+  description: Sandboxed execution via Docker containers for untrusted code
+
+tools:
+  - module: tool-sandbox
+    source: ./modules/tool-sandbox
+    config:
+      runtime: docker
+      image: letsgo-sandbox:latest
+      resource_limits:
+        memory: 512m
+        cpu: "1.0"
+        timeout_seconds: 120
+      network: none
+      mount_cwd: true
+
+context:
+  include:
+    - letsgo:context/sandbox-awareness.md
