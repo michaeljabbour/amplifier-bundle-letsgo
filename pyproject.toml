@@ -1,13 +1,5 @@
-[project]
-name = "amplifier-bundle-letsgo"
-version = "0.1.0"
-description = "Security, memory, secrets, sandbox, and observability capabilities bundle"
-requires-python = ">=3.11"
-dependencies = [
-    "cryptography>=42.0",
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
-]
+# Test and lint configuration only — this is NOT an installable Python package.
+# The bundle is composed via bundle.md; modules have their own pyproject.toml.
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
