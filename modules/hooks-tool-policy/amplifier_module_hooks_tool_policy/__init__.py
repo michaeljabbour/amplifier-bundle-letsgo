@@ -75,14 +75,6 @@ class ToolPolicyHook:
             config.get("audit_log_path", "~/.letsgo/logs/tool-policy-audit.jsonl")
         ).expanduser()
 
-        # Build the set of all explicitly classified tools for fast lookup
-        self._classified_tools: frozenset[str] = frozenset(
-            self.blocked_tools
-            + self.high_risk_tools
-            + self.medium_risk_tools
-            + self.low_risk_tools
-        )
-
     # -- risk classification ------------------------------------------------
 
     def classify_risk(self, tool_name: str) -> str:
