@@ -23,6 +23,7 @@ _MODULE_DIRS = [
     _BUNDLE_ROOT / "modules" / "hooks-memory-inject",
     _BUNDLE_ROOT / "modules" / "tool-sandbox",
     _BUNDLE_ROOT / "modules" / "tool-secrets",
+    _BUNDLE_ROOT / "modules" / "tool-memory-store",
     # Gateway package lives under gateway/
     _BUNDLE_ROOT / "gateway",
 ]

@@ -8,4 +8,5 @@ bundle:
     - bundle: letsgo:behaviors/secrets
     - bundle: letsgo:behaviors/sandbox
     - bundle: letsgo:behaviors/observability
+    - bundle: letsgo:behaviors/memory-store
     - bundle: letsgo:behaviors/memory-inject

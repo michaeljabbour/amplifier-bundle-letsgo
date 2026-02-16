@@ -1,0 +1,16 @@
+[project]
+name = "amplifier-module-tool-memory-store"
+version = "0.1.0"
+description = "Durable memory store with search_v2, scoring, sensitivity gating, and CRUD"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.entry-points."amplifier.modules"]
+tool-memory-store = "amplifier_module_tool_memory_store:mount"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["amplifier_module_tool_memory_store"]
