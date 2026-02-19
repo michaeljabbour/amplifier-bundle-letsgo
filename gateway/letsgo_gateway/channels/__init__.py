@@ -3,6 +3,7 @@ from .webhook import WebhookChannel
 from .telegram import TelegramChannel
 from .discord import DiscordChannel
 from .slack import SlackChannel
+from .whatsapp import WhatsAppChannel
 
 __all__ = [
     "ChannelAdapter",
@@ -10,4 +11,5 @@ __all__ = [
     "TelegramChannel",
     "DiscordChannel",
     "SlackChannel",
+    "WhatsAppChannel",
 ]

@@ -13,6 +13,7 @@ class ChannelType(str, Enum):
     TELEGRAM = "telegram"
     DISCORD = "discord"
     SLACK = "slack"
+    WHATSAPP = "whatsapp"
 
 
 class AuthStatus(str, Enum):

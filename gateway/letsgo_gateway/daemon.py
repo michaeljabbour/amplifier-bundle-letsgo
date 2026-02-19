@@ -9,8 +9,10 @@ from typing import Any
 from .auth import PairingStore
 from .channels.base import ChannelAdapter
 from .channels.webhook import WebhookChannel
+from .channels.whatsapp import WhatsAppChannel
 from .cron import CronScheduler
 from .models import ChannelType, InboundMessage, OutboundMessage
+from .heartbeat import HeartbeatEngine
 from .router import SessionRouter
 
 logger = logging.getLogger(__name__)
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Channel type -> adapter class mapping
 _CHANNEL_CLASSES: dict[str, type[ChannelAdapter]] = {
     "webhook": WebhookChannel,
+    "whatsapp": WhatsAppChannel,
 }
 
 # Lazy imports for stub channels to avoid requiring their deps at import time
@@ -52,11 +55,36 @@ class GatewayDaemon:
         self._config: dict[str, Any] = config if config is not None else _load_config(config_path)
         self.auth = PairingStore(self._config.get("auth", {}))
         self.router = SessionRouter()
-        self.cron = CronScheduler(self._config.get("cron", {}))
+        self.heartbeat = HeartbeatEngine(
+            agents_config=self._config.get("agents", {}),
+            default_channels=self._config.get("heartbeat", {}).get("default_channels", []),
+        )
+        self.cron = CronScheduler(
+            self._config.get("cron", {}),
+            job_executor=self._execute_cron_job,
+        )
         self.channels: dict[str, ChannelAdapter] = {}
         self._running = False
 
         self._init_channels()
+
+    async def _execute_cron_job(
+        self, recipe_path: str, context: dict, automation_profile: dict
+    ) -> dict[str, Any]:
+        """Route cron jobs to the appropriate executor."""
+        if recipe_path == "__heartbeat__":
+            results = await self.heartbeat.run_all()
+            failed = [r for r in results if r["status"] == "error"]
+            return {
+                "status": "failed" if failed else "completed",
+                "results": results,
+            }
+
+        # Regular recipe jobs — stub for future wiring
+        logger.info(
+            "Recipe job '%s' triggered (recipe runner not yet wired)", recipe_path
+        )
+        return {"status": "completed", "note": "recipe runner not yet wired"}
 
     def _init_channels(self) -> None:
         """Instantiate channel adapters from config."""

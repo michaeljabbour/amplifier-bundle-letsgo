@@ -20,6 +20,7 @@ You have enhanced capabilities provided by the LetsGo bundle. Use them appropria
 | Memory Compression | auto (hook) | Clusters and merges similar old memories at session end |
 | Memory Injection | auto (hook) | Injects relevant memories into each prompt as ephemeral context |
 | Gateway | Application | Multi-channel messaging daemon with sender pairing and cron scheduling |
+| Heartbeat Engine | Application | Proactive scheduled sessions — CronScheduler fires HeartbeatEngine per agent |
 | Modes | Runtime | Careful mode (approval gates) and Automation mode (restricted profile) |
 | Skills | Knowledge | Domain expertise packages — browser automation, image generation, scheduling, messaging, skill authoring |
 
@@ -55,8 +56,24 @@ delegate to `letsgo:memory-curator`.
 
 The gateway is a multi-channel messaging daemon that bridges external messaging
 platforms (webhook, telegram, discord, slack) to Amplifier sessions. It handles
-sender pairing, message routing, and cron-based scheduled tasks. Use the
+sender pairing, message routing, and cron-based scheduled automation. Use the
 `setup-wizard` recipe for first-run configuration.
+
+### Heartbeat Engine
+
+The heartbeat is a proactive session engine built into the gateway daemon. It is
+a **direct programmatic session** — not a recipe, not a hook.
+
+- **Cron-scheduled**: CronScheduler fires `HeartbeatEngine.run_all()` on a configurable schedule
+- **Per-agent prompts**: Each agent's heartbeat prompt is defined in `context/heartbeat/agents/{id}.md`
+- **Full Amplifier sessions**: Each heartbeat creates a real Amplifier session — all memory hooks fire automatically, all tools are available
+- **Channel routing**: Heartbeat responses are routed to configured channels like any other message
+
+Two session creation paths exist in the gateway:
+- **Reactive**: `SessionRouter.get_or_create(sender)` — triggered by incoming user messages
+- **Proactive**: `HeartbeatEngine.run_heartbeat(agent_id)` — triggered by the cron scheduler
+
+Both produce identical Amplifier sessions with full hook and tool support.
 
 ## Modes
 

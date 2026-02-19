@@ -1,0 +1,8 @@
+bundle:
+  name: behavior-heartbeat
+  version: 1.0.0
+  description: Context and instructions for proactive heartbeat sessions
+
+context:
+  include:
+    - letsgo:context/heartbeat/heartbeat-awareness.md

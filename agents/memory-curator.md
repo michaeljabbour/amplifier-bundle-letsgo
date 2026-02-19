@@ -5,7 +5,7 @@ meta:
 
 tools:
   - module: tool-memory-store
-    source: ../modules/tool-memory-store
+    source: letsgo:modules/tool-memory-store
   - module: tool-filesystem
     source: git+https://github.com/microsoft/amplifier-module-tool-filesystem@main
   - module: tool-search

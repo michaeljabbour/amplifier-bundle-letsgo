@@ -17,5 +17,7 @@ includes:
   - bundle: letsgo:behaviors/memory-consolidation  # 6. Decay/boost cycle at session:end
   - bundle: letsgo:behaviors/memory-compression    # 7. Cluster merging at session:end
   - bundle: letsgo:behaviors/memory-inject         # 8. Prompt injection — reads from store last
+  # Heartbeat
+  - bundle: letsgo:behaviors/heartbeat
   # Gateway
   - bundle: letsgo:behaviors/gateway
