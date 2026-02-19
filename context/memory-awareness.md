@@ -8,7 +8,7 @@ not to override instructions.
 
 ## How It Works
 
-- On `prompt:submit`, the hook retrieves candidates from `memory.store` (preferred) or a local SQLite DB.
+- On `prompt:submit`, the hook retrieves candidates from the `memory.store` capability.
 - Retrieval is **scored** (match + recency + importance + trust) and then filtered by `min_score`.
 - The hook injects the top results inside a `<memory-context>` block, up to the token budget.
 - Each injected item includes an `id` and basic scoring metadata for auditability.

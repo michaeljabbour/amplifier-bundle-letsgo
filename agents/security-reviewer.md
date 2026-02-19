@@ -53,7 +53,7 @@ Operations with **no side effects** or **read-only access**:
 
 - `tool-search` — Code search (read-only)
 - `tool-todo` — Task tracking (ephemeral, session-scoped)
-- `tool-memory` — Memory read/write (user-controlled data)
+- `tool-memory-store` — Memory read/write (user-controlled data)
 - `tool-skills` — Skill loading (read-only)
 
 ## Review Process

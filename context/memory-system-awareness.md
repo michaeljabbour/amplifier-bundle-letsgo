@@ -25,8 +25,8 @@ scored retrieval, and automatic lifecycle management.
 These run behind the scenes on hook events — you do not control them:
 
 - **Auto-capture** extracts observations from tool results (tool:post)
-- **Memorability scoring** filters low-value events before storage
-- **Boundary detection** identifies context shifts in tool activity
+- **Memorability scoring** filters low-value events before storage. Content is scored 0.0–1.0 on four dimensions: substance, salience, distinctiveness, and type weight. Gate threshold: 0.30 — content scoring below this is discarded.
+- **Boundary detection** identifies context shifts in tool activity via keyword Jaccard similarity in a sliding window. Detected boundaries are recorded as facts (subject/predicate/object triples).
 - **Temporal classification** tags memories by timescale (immediate / task / session / project)
 - **Consolidation** boosts accessed memories, decays unused ones at session end
 - **Compression** clusters and merges old similar memories at session end

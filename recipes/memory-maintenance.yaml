@@ -30,7 +30,7 @@ steps:
       Perform a comprehensive memory audit:
 
       1. Count total memories and report storage size
-      2. Break down counts by category (decision, insight, fact, preference, context)
+      2. Break down counts by category (bugfix, feature, refactor, change, discovery, decision, session_summary, compressed_summary)
       3. Identify memories older than {{summarize_older_than_days}} days that are verbose (>500 chars)
       4. Find potential duplicates with similarity above {{similarity_threshold}}
       5. List memories with no tags or categories (uncategorized)
