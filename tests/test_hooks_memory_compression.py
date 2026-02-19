@@ -395,7 +395,7 @@ class TestStatsAndReturn:
         compressor, store = _make_compressor(tmp_path)
 
         result = await compressor.execute("session:end", {})
-        assert result["action"] == "continue"
+        assert result.action == "continue"
 
     @pytest.mark.asyncio
     async def test_execute_includes_compression_stats(self, tmp_path: Path) -> None:
@@ -403,8 +403,9 @@ class TestStatsAndReturn:
         compressor, store = _make_compressor(tmp_path)
 
         result = await compressor.execute("session:end", {})
-        assert "compression_stats" in result
-        assert isinstance(result["compression_stats"], dict)
+        assert result.data is not None
+        assert "compression_stats" in result.data
+        assert isinstance(result.data["compression_stats"], dict)
 
 
 # ===========================================================================

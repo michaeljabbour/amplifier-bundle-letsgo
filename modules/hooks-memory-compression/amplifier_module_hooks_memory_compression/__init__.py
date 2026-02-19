@@ -7,6 +7,7 @@ This simpler analog clusters similar old memories by keyword overlap and
 merges redundant clusters into compressed summaries. Runs at session:end
 after consolidation has adjusted importance scores.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,20 +16,69 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from amplifier_core.models import HookResult
+
 logger = logging.getLogger(__name__)
 
 __amplifier_module_type__ = "hook"
 
 # Canonical stopwords — shared with boundaries and store modules
-_STOPS = frozenset({
-    "a", "all", "also", "an", "and", "are", "as", "at",
-    "be", "been", "but", "by", "can", "each", "for", "from",
-    "has", "have", "how", "i", "in", "into", "is", "it",
-    "its", "just", "me", "more", "my", "not", "of", "on",
-    "one", "or", "our", "out", "so", "some", "than", "that",
-    "the", "this", "to", "was", "we", "what", "when", "who",
-    "will", "with", "you", "your",
-})
+_STOPS = frozenset(
+    {
+        "a",
+        "all",
+        "also",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "been",
+        "but",
+        "by",
+        "can",
+        "each",
+        "for",
+        "from",
+        "has",
+        "have",
+        "how",
+        "i",
+        "in",
+        "into",
+        "is",
+        "it",
+        "its",
+        "just",
+        "me",
+        "more",
+        "my",
+        "not",
+        "of",
+        "on",
+        "one",
+        "or",
+        "our",
+        "out",
+        "so",
+        "some",
+        "than",
+        "that",
+        "the",
+        "this",
+        "to",
+        "was",
+        "we",
+        "what",
+        "when",
+        "who",
+        "will",
+        "with",
+        "you",
+        "your",
+    }
+)
 
 
 def _extract_keywords(text: str, max_keywords: int = 12) -> set[str]:
@@ -72,26 +122,29 @@ class MemoryCompressor:
     def name(self) -> str:
         return "memory-compression"
 
-    async def execute(self, event: str, data: dict[str, Any]) -> dict[str, Any]:
+    async def execute(self, event: str, data: dict[str, Any]) -> HookResult:
         """Run compression at session end."""
         try:
             stats = self.compress()
             if stats["clusters_merged"] > 0:
                 logger.info(
                     "Compression: merged %d clusters (%d memories → %d summaries)",
-                    stats["clusters_merged"], stats["memories_removed"],
+                    stats["clusters_merged"],
+                    stats["memories_removed"],
                     stats["summaries_created"],
                 )
-            return {"action": "continue", "compression_stats": stats}
+            return HookResult(action="continue", data={"compression_stats": stats})
         except Exception as e:
             logger.debug("Compression error (non-blocking): %s", e)
-            return {"action": "continue"}
+            return HookResult(action="continue")
 
     def compress(self) -> dict[str, int]:
         """Run a full compression pass."""
         stats = {
-            "total_candidates": 0, "clusters_found": 0,
-            "clusters_merged": 0, "memories_removed": 0,
+            "total_candidates": 0,
+            "clusters_found": 0,
+            "clusters_merged": 0,
+            "memories_removed": 0,
             "summaries_created": 0,
         }
 
@@ -125,7 +178,8 @@ class MemoryCompressor:
         all_memories = self._store.list_all(limit=self._max_batch, offset=0)
         cutoff_str = cutoff.isoformat()
         return [
-            m for m in all_memories
+            m
+            for m in all_memories
             if m.get("created_at", "") < cutoff_str
             and m.get("type") not in ("session_summary", "compressed_summary")
         ]
@@ -191,7 +245,9 @@ class MemoryCompressor:
                     try:
                         all_tags.update(json.loads(tags_raw))
                     except (json.JSONDecodeError, TypeError):
-                        all_tags.update(t.strip() for t in tags_raw.split(",") if t.strip())
+                        all_tags.update(
+                            t.strip() for t in tags_raw.split(",") if t.strip()
+                        )
                 else:
                     all_tags.update(t.strip() for t in tags_raw.split(",") if t.strip())
 
@@ -204,7 +260,10 @@ class MemoryCompressor:
                     pass
 
             # Parse files
-            for field_name, target_set in [("files_read", all_files_read), ("files_modified", all_files_modified)]:
+            for field_name, target_set in [
+                ("files_read", all_files_read),
+                ("files_modified", all_files_modified),
+            ]:
                 raw = mem.get(field_name, "[]")
                 if isinstance(raw, str):
                     try:

@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from amplifier_core.models import HookResult
+
 logger = logging.getLogger(__name__)
 
 __amplifier_module_type__ = "hook"
@@ -112,7 +114,7 @@ class MemoryCaptureHook:
             ("session:end", 100),
         ]
 
-    async def execute(self, event: str, data: dict[str, Any]) -> dict[str, Any]:
+    async def execute(self, event: str, data: dict[str, Any]) -> HookResult:
         """Main hook dispatcher."""
         try:
             if event == "session:start":
@@ -123,9 +125,9 @@ class MemoryCaptureHook:
                 return await self._handle_tool_post(data)
         except Exception as e:
             logger.debug("Memory capture error (non-blocking): %s", e)
-        return {"action": "continue"}
+        return HookResult(action="continue")
 
-    async def _handle_session_start(self, data: dict[str, Any]) -> dict[str, Any]:
+    async def _handle_session_start(self, data: dict[str, Any]) -> HookResult:
         session_id = data.get("session_id", "default")
         project = self._detect_project(data)
         user_prompt = data.get("user_prompt", "")
@@ -134,16 +136,16 @@ class MemoryCaptureHook:
             project=project,
             user_prompt=user_prompt,
         )
-        return {"action": "continue"}
+        return HookResult(action="continue")
 
-    async def _handle_session_end(self, data: dict[str, Any]) -> dict[str, Any]:
+    async def _handle_session_end(self, data: dict[str, Any]) -> HookResult:
         session_id = data.get("session_id", "default")
         session = self._sessions.pop(session_id, None)
         if session and session.observation_count > 0:
             self._create_session_summary(session)
-        return {"action": "continue"}
+        return HookResult(action="continue")
 
-    async def _handle_tool_post(self, data: dict[str, Any]) -> dict[str, Any]:
+    async def _handle_tool_post(self, data: dict[str, Any]) -> HookResult:
         session_id = data.get("session_id", "default")
         session = self._sessions.get(session_id)
         if session is None:
@@ -160,11 +162,11 @@ class MemoryCaptureHook:
         self._track_file_operations(session, tool_name, tool_input, tool_output)
 
         if not self._should_capture(tool_name, tool_output):
-            return {"action": "continue"}
+            return HookResult(action="continue")
 
         content = self._extract_content(tool_output)
         if not content or len(content) < self._min_content_length:
-            return {"action": "continue"}
+            return HookResult(action="continue")
 
         obs_type = self._classify_observation_type(tool_name, tool_input, content)
         title = self._generate_title(tool_name, tool_input)
@@ -190,7 +192,7 @@ class MemoryCaptureHook:
             ):
                 self._create_interim_summary(session)
 
-        return {"action": "continue"}
+        return HookResult(action="continue")
 
     def _store_observation(
         self,

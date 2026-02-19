@@ -15,6 +15,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from amplifier_core.models import HookResult
+
 logger = logging.getLogger(__name__)
 
 __amplifier_module_type__ = "hook"
@@ -127,7 +129,7 @@ class BoundaryDetector:
     def name(self) -> str:
         return "memory-boundaries"
 
-    async def execute(self, event: str, data: dict[str, Any]) -> dict[str, Any]:
+    async def execute(self, event: str, data: dict[str, Any]) -> HookResult:
         """Hook handler for tool:post events."""
         session_id = data.get("session_id", "default")
         tool_output = data.get("result", {})
@@ -135,7 +137,7 @@ class BoundaryDetector:
 
         content = _extract_text(tool_output)
         if not content or len(content) < 30:
-            return {"action": "continue"}
+            return HookResult(action="continue")
 
         keywords = _extract_keywords(content)
         is_boundary = self._check_boundary(session_id, keywords)
@@ -158,7 +160,7 @@ class BoundaryDetector:
             except Exception as e:
                 logger.debug("Failed to store boundary fact: %s", e)
 
-        return {"action": "continue"}
+        return HookResult(action="continue")
 
     def _check_boundary(self, session_id: str, keywords: set[str]) -> bool:
         """Compare current keywords against sliding window."""

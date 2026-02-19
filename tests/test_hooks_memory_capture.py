@@ -135,7 +135,7 @@ class TestSessionLifecycle:
 
         result = await hook.execute("session:start", _session_start_data())
 
-        assert result["action"] == "continue"
+        assert result.action == "continue"
         # Internal state: session context should exist
         assert "test-session" in hook._sessions
 
@@ -161,7 +161,7 @@ class TestSessionLifecycle:
 
         # End session
         result = await hook.execute("session:end", {"session_id": "test-session"})
-        assert result["action"] == "continue"
+        assert result.action == "continue"
 
         # Should have created a session_summary
         timeline = store.get_timeline(type="session_summary")

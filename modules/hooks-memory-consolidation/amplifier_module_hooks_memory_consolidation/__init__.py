@@ -17,6 +17,8 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
+from amplifier_core.models import HookResult
+
 logger = logging.getLogger(__name__)
 
 __amplifier_module_type__ = "hook"
@@ -66,7 +68,7 @@ class MemoryConsolidator:
     def name(self) -> str:
         return "memory-consolidation"
 
-    async def execute(self, event: str, data: dict[str, Any]) -> dict[str, Any]:
+    async def execute(self, event: str, data: dict[str, Any]) -> HookResult:
         """Run consolidation at session end."""
         try:
             stats = self.consolidate()
@@ -74,10 +76,10 @@ class MemoryConsolidator:
                 "Consolidation complete: boosted=%d decayed=%d removed=%d",
                 stats["boosted"], stats["decayed"], stats["removed"],
             )
-            return {"action": "continue", "consolidation_stats": stats}
+            return HookResult(action="continue", data={"consolidation_stats": stats})
         except Exception as e:
             logger.debug("Consolidation error (non-blocking): %s", e)
-            return {"action": "continue"}
+            return HookResult(action="continue")
 
     def consolidate(self) -> dict[str, int]:
         """Run a full consolidation pass over all memories."""

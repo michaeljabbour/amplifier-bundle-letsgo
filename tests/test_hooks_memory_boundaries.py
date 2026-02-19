@@ -364,4 +364,4 @@ class TestJaccardSimilarity:
             "tool:post",
             _tool_post_data("any content that is long enough for processing here"),
         )
-        assert result == {"action": "continue"}
+        assert result.action == "continue"

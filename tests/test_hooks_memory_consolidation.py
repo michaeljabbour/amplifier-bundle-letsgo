@@ -356,7 +356,7 @@ class TestStatsAndReturn:
 
         result = await consolidator.execute("session:end", {})
 
-        assert result["action"] == "continue"
+        assert result.action == "continue"
 
     def test_consolidate_empty_store(self, tmp_path: Path) -> None:
         """consolidate() on an empty store should not error."""
