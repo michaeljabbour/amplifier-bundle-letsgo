@@ -438,7 +438,7 @@ async def mount(coordinator: Any, config: dict[str, Any] | None = None) -> None:
     """Mount the memory capture hook."""
     store = coordinator.get_capability("memory.store")
     if store is None:
-        logger.warning("memory.store capability not available; capture hook disabled")
+        logger.info("memory.store capability not available; capture hook disabled")
         return
 
     cfg = config or {}
