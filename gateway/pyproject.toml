@@ -8,6 +8,12 @@ dependencies = [
     "amplifier-core",
 ]
 
+[project.optional-dependencies]
+discord = ["discord.py>=2.3"]
+telegram = ["python-telegram-bot>=20.0"]
+slack = ["slack-sdk>=3.21"]
+all-channels = ["discord.py>=2.3", "python-telegram-bot>=20.0", "slack-sdk>=3.21"]
+
 [project.scripts]
 letsgo-gateway = "letsgo_gateway.cli:main"
 

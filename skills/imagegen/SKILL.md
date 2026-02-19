@@ -6,6 +6,8 @@ description: >-
     asks to generate or edit images (generate image, edit/inpaint/mask,
     background removal or replacement, transparent background, product shots,
     concept art, covers, or batch variants). Requires OPENAI_API_KEY.
+---
+
 # Image Generation Skill
 
 Generate or edit images for project assets (website heroes, game art, UI mockups, product mockups, wireframes, logos, photorealistic images, infographics). Defaults to `gpt-image-1.5` and the OpenAI Image API.

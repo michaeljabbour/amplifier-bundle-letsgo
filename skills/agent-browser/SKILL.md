@@ -9,6 +9,8 @@ description: >-
     button", "take a screenshot", "scrape data from a page", "test this web
     app", "login to a site", "automate browser actions", or any task requiring
     programmatic web interaction.
+---
+
 # Browser Automation with agent-browser
 
 Browser automation CLI (`agent-browser` npm package) for navigating, interacting with, and capturing web content. Prioritize delegating browser actions to sub-agents to isolate context cost.

@@ -29,7 +29,7 @@ LetsGo provides seven capability areas, each composed from thin behaviors and mo
 - **Sandboxed Execution** — Docker-first isolated command execution with resource limits
 - **Observability & Telemetry** — 7-event session telemetry with tool metrics, token tracking, JSONL logs
 - **Memory System** — 8-module bio-inspired pipeline: encoding, consolidation, compression, retrieval
-- **Gateway** — Multi-channel messaging (Webhook, Telegram, Discord, Slack) with sender pairing
+- **Gateway** — Multi-channel messaging (Discord, Telegram, Slack, Webhook) with file exchange, sender pairing, and CLI
 - **Heartbeat** — Proactive scheduled agent sessions via CronScheduler and HeartbeatEngine
 
 ## Memory System (Neuroscience-Inspired)
@@ -154,14 +154,57 @@ The `hooks-telemetry` module provides comprehensive session observability.
 
 ## Gateway
 
-The gateway provides multi-channel messaging and scheduled automation.
+The gateway provides multi-channel messaging, file exchange, and scheduled automation across 16 Python source files.
 
-- **Multi-channel support**: Webhook, Telegram, Discord, Slack — unified message routing
+### Channel Adapters
+
+All channel adapters are full production implementations with unified message routing, sender pairing, and file exchange.
+
+| Channel | Library | Key Features |
+|---------|---------|-------------|
+| **Discord** | discord.py | DM-only messaging, attachment download, message splitting (2000 chars), typing indicators, proactive DM delivery, channel commands (`/agent`, `/reset`) |
+| **Telegram** | python-telegram-bot v20+ | All 8 media types (photo, document, audio, voice, video, video_note, sticker, animation), MIME-based extension detection, message splitting (4096 chars), typing indicators, bot command registration, chat allowlist |
+| **Slack** | slack-sdk | Socket Mode (preferred) + HTTP Events API fallback, HMAC-SHA256 signature verification, file download via authenticated API, message splitting (4000 chars), `files_upload_v2` for attachments |
+| **Webhook** | aiohttp | HTTP server, HMAC signature validation, JSON request/response |
+| **WhatsApp** | — | Stub (future) |
+
+### File Exchange
+
+The gateway implements a unified file exchange protocol across all channels:
+
+- **Inbound** — `[file: /path/to/downloaded]` tags: channel adapters download media attachments to a temp directory and append file reference tags to the message text
+- **Outbound** — `[send_file: /path/to/file]` tags: agents include these tags in responses; the gateway strips the tags and attaches the referenced files natively per channel
+- **Long responses** — messages exceeding 4000 characters are saved as `.md` files with a truncated preview sent inline plus the full file attached
+
+### Core Infrastructure
+
 - **Sender pairing**: 6-character authentication codes for sender identity verification
-- **Session routing**: Per-sender Amplifier session routing with automatic stale session cleanup
-- **Cron scheduler**: Cron expressions for timed automation — schedules persist across restarts
+- **Session routing**: Per-sender Amplifier sessions created via the `amplifier` CLI bridge (SessionRouter), with fallback to echo mode
+- **Cron scheduler**: Cron expressions for timed automation — executes recipes via the `amplifier tool invoke recipes` CLI bridge; schedules persist across restarts
 - **Rate limiting**: 10 requests per minute sliding window per sender
 - **Message queue**: SQLite-backed durable queue with retry logic
+
+### CLI
+
+```
+letsgo-gateway start                                              # Start the daemon
+letsgo-gateway send --channel CH --sender-id ID --message TEXT    # Proactive send
+letsgo-gateway pairing list [--approved|--pending]                # List senders
+letsgo-gateway pairing approve CODE                               # Approve pairing
+letsgo-gateway cron list                                          # List jobs
+letsgo-gateway cron create --name N --cron EXPR --recipe PATH     # Create job
+letsgo-gateway cron delete --name N                               # Delete job
+```
+
+### Installation
+
+```bash
+pip install letsgo-gateway                    # Core (webhook only)
+pip install letsgo-gateway[discord]           # + Discord
+pip install letsgo-gateway[telegram]          # + Telegram
+pip install letsgo-gateway[slack]             # + Slack
+pip install letsgo-gateway[all-channels]      # All channels
+```
 
 ## Heartbeat
 

@@ -7,6 +7,8 @@ description: >-
     recipe, list existing scheduled jobs, delete a scheduled job, or automate
     periodic work (reports, health checks, reminders, syncs). Operates through
     the gateway's CronScheduler.
+---
+
 # Schedule Skill
 
 Manage cron-based scheduled tasks through the letsgo gateway's `CronScheduler`. Each schedule fires at a cron interval and executes an Amplifier recipe, enabling periodic automated work without manual invocation.

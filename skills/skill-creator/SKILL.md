@@ -7,6 +7,8 @@ description: >-
     capabilities with specialized knowledge, workflows, or tool integrations.
     Covers skill anatomy, progressive disclosure, creation process, and design
     patterns for the Amplifier skill system.
+---
+
 # Skill Creator
 
 Guide for creating effective Amplifier skills -- modular, self-contained packages that extend agent capabilities with specialized knowledge, workflows, and tools.
@@ -50,10 +52,9 @@ Every skill consists of a required `SKILL.md` file and optional bundled resource
 skill-name/
 +-- SKILL.md (required)
 |   +-- YAML frontmatter (required)
-|   |   +-- skill:
-|   |       +-- name: (required)
-|   |       +-- version: (required)
-|   |       +-- description: (required)
+|   |   +-- name: (required)
+|   |   +-- version: (required)
+|   |   +-- description: (required)
 |   +-- Markdown instructions (required)
 +-- Bundled Resources (optional)
     +-- scripts/          - Executable code (Python/Bash/etc.)
@@ -63,9 +64,10 @@ skill-name/
 
 ### SKILL.md (required)
 
-**Frontmatter** (YAML): Contains `skill.name`, `skill.version`, and `skill.description` fields. The description serves as the trigger mechanism -- agents read it to decide when to activate the skill. Be clear and comprehensive about what the skill does and when to use it.
+**Frontmatter** (YAML): Contains `name`, `version`, and `description` fields. The description serves as the trigger mechanism -- agents read it to decide when to activate the skill. Be clear and comprehensive about what the skill does and when to use it.
 
 ```yaml
+---
 name: my-skill
 version: 1.0.0
 description: >-
@@ -205,10 +207,13 @@ mkdir -p skills/<skill-name>/{scripts,references,assets}
 Create the `SKILL.md` with proper frontmatter:
 
 ```yaml
+---
 name: <skill-name>
 version: 1.0.0
 description: >-
     <Comprehensive description of what the skill does and when to use it.>
+---
+
 # <Skill Name>
 
 <Instructions and guidance for using the skill.>
