@@ -1,0 +1,10 @@
+{
+  "name": "letsgo-whatsapp-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WhatsApp Web bridge for the letsgo gateway",
+  "dependencies": {
+    "whatsapp-web.js": "^1.34.6",
+    "qrcode-terminal": "^0.12.0"
+  }
+}

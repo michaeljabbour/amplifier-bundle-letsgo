@@ -1,26 +1,23 @@
-"""WhatsApp Cloud API channel adapter.
+"""WhatsApp channel adapter using whatsapp-web.js via a Node.js bridge.
 
-Uses the Meta Graph API for sending messages and an aiohttp webhook
-server for receiving inbound messages.
+Spawns a Node.js subprocess running whatsapp_bridge.js which handles
+the WhatsApp Web connection (QR code auth, message events, media).
+Communication is via JSON lines on stdin/stdout.
 
 Config keys:
-    phone_number_id: Meta phone number ID (required)
-    access_token: Meta access token (required)
-    verify_token: Webhook verification token (required)
-    app_secret: For X-Hub-Signature-256 verification (optional)
-    webhook_path: Path for webhook endpoint (default ``"/whatsapp"``)
-    api_version: Graph API version (default ``"v21.0"``)
-    host: Bind address (default ``"0.0.0.0"``)
-    port: Bind port (default ``8081``)
+    session_dir: Session persistence directory (default ``~/.letsgo/whatsapp-session/``)
+    files_dir: Media download directory (default ``~/.letsgo/whatsapp-files/``)
+    qr_file: QR code save path (default ``~/.letsgo/whatsapp_qr.txt``)
+    node_path: Path to node binary (default: found via ``shutil.which``)
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 import json
 import logging
+import shutil
+from pathlib import Path
 from typing import Any
 
 from ..models import ChannelType, InboundMessage, OutboundMessage
@@ -28,413 +25,289 @@ from .base import ChannelAdapter
 
 logger = logging.getLogger(__name__)
 
-try:
-    import aiohttp
-    from aiohttp import web
-
-    _HAS_AIOHTTP = True
-except ImportError:  # pragma: no cover
-    aiohttp = None  # type: ignore[assignment]
-    web = None  # type: ignore[assignment]
-    _HAS_AIOHTTP = False
-
-_GRAPH_API_BASE = "https://graph.facebook.com"
-_MAX_TEXT_LENGTH = 4096
+_BRIDGE_SCRIPT = Path(__file__).parent / "whatsapp_bridge.js"
+_MAX_TEXT_LENGTH = 4000
 
 
 class WhatsAppChannel(ChannelAdapter):
-    """WhatsApp Cloud API adapter.
+    """WhatsApp adapter backed by whatsapp-web.js.
 
-    Requires ``aiohttp`` (a core gateway dependency).  If the import
-    somehow fails the adapter loads without error but all operations
-    are no-ops.
+    Spawns a Node.js child process that handles the WhatsApp Web protocol.
+    Authentication is via QR code scan — no API keys or business accounts
+    required.
 
     Config:
-        phone_number_id (str): Meta phone number ID.
-        access_token (str): Meta access token.
-        verify_token (str): Webhook verification token.
-        app_secret (str | None): Optional app secret for signature verification.
-        webhook_path (str): Webhook URL path (default ``"/whatsapp"``).
-        api_version (str): Graph API version (default ``"v21.0"``).
-        host (str): Bind address (default ``"0.0.0.0"``).
-        port (int): Bind port (default ``8081``).
+        session_dir (str): Session persistence path.
+        files_dir (str): Downloaded media path.
+        qr_file (str): QR code text file path.
+        node_path (str): Explicit path to ``node`` binary.
     """
 
     def __init__(self, name: str, config: dict[str, Any]) -> None:
         super().__init__(name, config)
-        self._phone_number_id: str = config.get("phone_number_id", "")
-        self._access_token: str = config.get("access_token", "")
-        self._verify_token: str = config.get("verify_token", "")
-        self._app_secret: str | None = config.get("app_secret")
-        self._webhook_path: str = config.get("webhook_path", "/whatsapp")
-        self._api_version: str = config.get("api_version", "v21.0")
-        self._host: str = config.get("host", "0.0.0.0")
-        self._port: int = int(config.get("port", 8081))
 
-        self._available: bool = _HAS_AIOHTTP
-        self._app: web.Application | None = None
-        self._runner: web.AppRunner | None = None
-        self._http_session: aiohttp.ClientSession | None = None
-        self._pending_tasks: set[asyncio.Task[None]] = set()
+        home = Path.home() / ".letsgo"
+        self._session_dir = config.get("session_dir", str(home / "whatsapp-session"))
+        self._files_dir = config.get("files_dir", str(home / "whatsapp-files"))
+        self._qr_file = config.get("qr_file", str(home / "whatsapp_qr.txt"))
+        self._node_path = config.get("node_path", shutil.which("node"))
+
+        self._process: asyncio.subprocess.Process | None = None
+        self._reader_task: asyncio.Task[None] | None = None
+        self._ready = asyncio.Event()
 
     # ---- lifecycle ----
 
     async def start(self) -> None:
-        if not self._available:
-            logger.warning(
-                "WhatsApp adapter '%s' requires aiohttp — "
-                "install with: pip install aiohttp",
+        if not self._node_path:
+            logger.error(
+                "WhatsApp adapter '%s': node not found. "
+                "Install Node.js and ensure 'node' is on PATH.",
                 self.name,
             )
             return
 
-        self._app = web.Application()
-        self._app.router.add_get(self._webhook_path, self._handle_verify)
-        self._app.router.add_post(self._webhook_path, self._handle_webhook)
+        if not _BRIDGE_SCRIPT.exists():
+            logger.error(
+                "WhatsApp bridge script not found at %s", _BRIDGE_SCRIPT
+            )
+            return
 
-        self._runner = web.AppRunner(self._app)
-        await self._runner.setup()
-        site = web.TCPSite(self._runner, self._host, self._port)
-        await site.start()
+        # Check that npm deps are installed
+        pkg_dir = _BRIDGE_SCRIPT.parent
+        if not (pkg_dir / "node_modules" / "whatsapp-web.js").exists():
+            logger.error(
+                "WhatsApp adapter '%s': node_modules not found. "
+                "Run 'npm install' in %s",
+                self.name,
+                pkg_dir,
+            )
+            return
 
-        self._http_session = aiohttp.ClientSession()
+        env = {
+            "HOME": str(Path.home()),
+            "PATH": str(Path(self._node_path).parent) + ":/usr/bin:/bin",
+            "WHATSAPP_SESSION_DIR": self._session_dir,
+            "WHATSAPP_FILES_DIR": self._files_dir,
+            "WHATSAPP_QR_FILE": self._qr_file,
+        }
+
+        self._process = await asyncio.create_subprocess_exec(
+            self._node_path,
+            str(_BRIDGE_SCRIPT),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+
         self._running = True
+        self._reader_task = asyncio.create_task(self._read_stdout())
+        asyncio.create_task(self._read_stderr())
+
         logger.info(
-            "WhatsAppChannel '%s' listening on %s:%s%s",
+            "WhatsAppChannel '%s' started (pid=%s, session=%s)",
             self.name,
-            self._host,
-            self._port,
-            self._webhook_path,
+            self._process.pid,
+            self._session_dir,
         )
 
     async def stop(self) -> None:
-        if not self._available:
-            return
-
-        # Cancel pending background tasks
-        for task in self._pending_tasks:
-            task.cancel()
-        if self._pending_tasks:
-            await asyncio.gather(*self._pending_tasks, return_exceptions=True)
-        self._pending_tasks.clear()
-
-        if self._http_session:
-            await self._http_session.close()
-            self._http_session = None
-
-        if self._runner:
-            await self._runner.cleanup()
-            self._runner = None
-
         self._running = False
+
+        if self._process and self._process.stdin:
+            try:
+                self._write_cmd({"type": "shutdown"})
+                await asyncio.wait_for(self._process.wait(), timeout=10)
+            except (asyncio.TimeoutError, ProcessLookupError):
+                self._process.kill()
+            except Exception:
+                logger.exception("Error during WhatsApp bridge shutdown")
+
+        if self._reader_task:
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
+
+        self._process = None
+        self._reader_task = None
         logger.info("WhatsAppChannel '%s' stopped", self.name)
 
-    # ---- inbound: webhook verification ----
+    # ---- bridge communication ----
 
-    async def _handle_verify(self, request: web.Request) -> web.Response:
-        """Handle GET webhook verification from Meta."""
-        mode = request.query.get("hub.mode", "")
-        token = request.query.get("hub.verify_token", "")
-        challenge = request.query.get("hub.challenge", "")
+    def _write_cmd(self, cmd: dict[str, Any]) -> None:
+        """Send a JSON-line command to the bridge's stdin."""
+        if self._process and self._process.stdin:
+            line = json.dumps(cmd) + "\n"
+            self._process.stdin.write(line.encode())
 
-        if mode == "subscribe" and token == self._verify_token:
-            logger.info("WhatsApp webhook verified for '%s'", self.name)
-            return web.Response(text=challenge, content_type="text/plain")
+    async def _read_stdout(self) -> None:
+        """Read JSON lines from bridge stdout and dispatch."""
+        assert self._process and self._process.stdout
+        while self._running:
+            try:
+                raw = await self._process.stdout.readline()
+                if not raw:
+                    break
+                line = raw.decode().strip()
+                if not line:
+                    continue
+                msg = json.loads(line)
+                await self._handle_bridge_event(msg)
+            except json.JSONDecodeError:
+                logger.warning("Invalid JSON from bridge: %s", raw[:200])
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Error reading from WhatsApp bridge")
 
-        logger.warning(
-            "WhatsApp webhook verification failed for '%s' "
-            "(mode=%s, token_match=%s)",
-            self.name,
-            mode,
-            token == self._verify_token,
+        # Process exited
+        if self._running:
+            logger.warning("WhatsApp bridge process exited unexpectedly")
+            self._running = False
+
+    async def _read_stderr(self) -> None:
+        """Forward bridge stderr to Python logging."""
+        assert self._process and self._process.stderr
+        while self._running:
+            try:
+                raw = await self._process.stderr.readline()
+                if not raw:
+                    break
+                line = raw.decode().strip()
+                if line:
+                    logger.info("[whatsapp-bridge] %s", line)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                break
+
+    async def _handle_bridge_event(self, event: dict[str, Any]) -> None:
+        """Dispatch an event from the bridge."""
+        event_type = event.get("type", "")
+        data = event.get("data", {})
+
+        if event_type == "qr":
+            logger.info(
+                "WhatsApp QR code generated — scan with your phone "
+                "(also saved to %s)",
+                self._qr_file,
+            )
+
+        elif event_type == "ready":
+            phone = data.get("phone", "unknown")
+            logger.info("WhatsApp connected as %s", phone)
+            self._ready.set()
+
+        elif event_type == "message":
+            await self._handle_inbound(data)
+
+        elif event_type == "disconnect":
+            reason = data.get("reason", "unknown")
+            logger.warning("WhatsApp disconnected: %s", reason)
+            self._ready.clear()
+
+        elif event_type == "error":
+            logger.error("WhatsApp bridge error: %s", data.get("message", ""))
+
+    # ---- inbound messages ----
+
+    async def _handle_inbound(self, data: dict[str, Any]) -> None:
+        """Convert a bridge message event to InboundMessage and dispatch."""
+        sender_id = data.get("from", "")
+        sender_label = data.get("sender", "")
+        text = data.get("text", "")
+        files = data.get("files", [])
+
+        attachments = [{"type": "file", "path": f} for f in files]
+
+        message = InboundMessage(
+            channel=ChannelType.WHATSAPP,
+            channel_name=self.name,
+            sender_id=sender_id,
+            sender_label=sender_label,
+            text=text,
+            thread_id=sender_id,
+            attachments=attachments,
+            raw=data,
         )
-        return web.Response(status=403, text="Verification failed")
 
-    # ---- inbound: message webhook ----
-
-    def _verify_payload_signature(self, body: bytes, signature: str) -> bool:
-        """Validate X-Hub-Signature-256 header."""
-        if not self._app_secret:
-            return True
-        expected = hmac.new(
-            self._app_secret.encode(), body, hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(f"sha256={expected}", signature)
-
-    async def _handle_webhook(self, request: web.Request) -> web.Response:
-        """Handle POST inbound messages from WhatsApp Cloud API.
-
-        Returns 200 immediately and processes messages as background tasks.
-        """
-        body = await request.read()
-
-        # Signature check
-        if self._app_secret:
-            sig = request.headers.get("X-Hub-Signature-256", "")
-            if not self._verify_payload_signature(body, sig):
-                return web.Response(status=403, text="Invalid signature")
-
-        try:
-            data = json.loads(body)
-        except json.JSONDecodeError:
-            return web.Response(status=400, text="Invalid JSON")
-
-        # Extract messages and process in the background
-        messages = self._extract_messages(data)
-        for msg in messages:
-            task = asyncio.create_task(self._process_inbound(msg))
-            self._pending_tasks.add(task)
-            task.add_done_callback(self._pending_tasks.discard)
-
-        # Must respond within 5 seconds
-        return web.Response(status=200, text="OK")
-
-    def _extract_messages(self, data: dict[str, Any]) -> list[InboundMessage]:
-        """Parse WhatsApp Cloud API payload into InboundMessages."""
-        messages: list[InboundMessage] = []
-
-        if data.get("object") != "whatsapp_business_account":
-            return messages
-
-        for entry in data.get("entry", []):
-            for change in entry.get("changes", []):
-                value = change.get("value", {})
-                contacts = {
-                    c.get("wa_id", ""): c.get("profile", {}).get("name", "")
-                    for c in value.get("contacts", [])
-                }
-                for msg in value.get("messages", []):
-                    sender_id = msg.get("from", "")
-                    sender_label = contacts.get(sender_id, "")
-                    msg_type = msg.get("type", "text")
-
-                    text = ""
-                    attachments: list[dict[str, Any]] = []
-
-                    if msg_type == "text":
-                        text = msg.get("text", {}).get("body", "")
-                    elif msg_type in ("image", "document", "audio", "video"):
-                        media_info = msg.get(msg_type, {})
-                        attachments.append({
-                            "type": msg_type,
-                            "media_id": media_info.get("id", ""),
-                            "mime_type": media_info.get("mime_type", ""),
-                            "caption": media_info.get("caption", ""),
-                        })
-                        text = media_info.get("caption", "")
-
-                    messages.append(InboundMessage(
-                        channel=ChannelType.WHATSAPP,
-                        channel_name=self.name,
-                        sender_id=sender_id,
-                        sender_label=sender_label,
-                        text=text,
-                        thread_id=sender_id,
-                        attachments=attachments,
-                        raw=msg,
-                    ))
-
-        return messages
-
-    async def _process_inbound(self, message: InboundMessage) -> None:
-        """Process a single inbound message via the registered callback."""
         if not self._on_message:
             return
+
         try:
             response_text = await self._on_message(message)
             if response_text:
                 outbound = OutboundMessage(
                     channel=ChannelType.WHATSAPP,
                     channel_name=self.name,
-                    thread_id=message.thread_id,
+                    thread_id=sender_id,
                     text=response_text,
                 )
                 await self.send(outbound)
         except Exception:
             logger.exception(
-                "Error processing WhatsApp message from '%s'",
-                message.sender_id,
+                "Error processing WhatsApp message from '%s'", sender_id
             )
 
     # ---- outbound ----
 
     async def send(self, message: OutboundMessage) -> bool:
-        """Send a message via WhatsApp Cloud API."""
-        if not self._available:
+        """Send a message via WhatsApp."""
+        if not self._process or not self._process.stdin:
             logger.warning(
-                "WhatsApp adapter '%s' is not available — "
-                "cannot send message (aiohttp not installed)",
-                self.name,
+                "WhatsApp adapter '%s' not running — cannot send", self.name
             )
             return False
 
-        if not self._http_session:
-            self._http_session = aiohttp.ClientSession()
+        to = message.thread_id or ""
 
-        thread_id = message.thread_id or ""
-        success = True
+        # Send file attachments
+        file_paths = [a.get("path", "") for a in message.attachments if a.get("path")]
 
-        # Send attachments first
-        for att in message.attachments:
-            media_type = att.get("type", "document")
-            url = att.get("url", "")
-            if url and media_type in ("image", "document", "audio", "video"):
-                if not await self._send_media(thread_id, media_type, url):
-                    success = False
+        # Handle long text — save as .md file and attach
+        text = message.text or ""
+        if len(text) > _MAX_TEXT_LENGTH:
+            md_path = Path(self._files_dir) / f"response_{id(message)}.md"
+            md_path.write_text(text)
+            file_paths.append(str(md_path))
+            text = text[:_MAX_TEXT_LENGTH] + "\n\n(full response attached as file)"
 
-        # Send text (split if too long)
-        if message.text:
-            for chunk in self._split_text(message.text):
-                if not await self._send_message(thread_id, chunk):
-                    success = False
-
-        return success
-
-    async def _send_message(self, to: str, text: str) -> bool:
-        """POST a text message to the WhatsApp Graph API."""
-        url = (
-            f"{_GRAPH_API_BASE}/{self._api_version}"
-            f"/{self._phone_number_id}/messages"
-        )
-        headers = {
-            "Authorization": f"Bearer {self._access_token}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": to,
-            "type": "text",
-            "text": {"body": text},
-        }
-        try:
-            async with self._http_session.post(
-                url, headers=headers, json=payload
-            ) as resp:
-                if resp.status >= 400:
-                    body = await resp.text()
-                    logger.error(
-                        "WhatsApp API error %s: %s", resp.status, body
-                    )
-                    return False
-                return True
-        except aiohttp.ClientError:
-            logger.exception("Failed to send WhatsApp message")
-            return False
-
-    async def _send_media(
-        self, to: str, media_type: str, media_url: str
-    ) -> bool:
-        """Send a media message via the WhatsApp Graph API."""
-        url = (
-            f"{_GRAPH_API_BASE}/{self._api_version}"
-            f"/{self._phone_number_id}/messages"
-        )
-        headers = {
-            "Authorization": f"Bearer {self._access_token}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "messaging_product": "whatsapp",
-            "to": to,
-            "type": media_type,
-            media_type: {"link": media_url},
-        }
-        try:
-            async with self._http_session.post(
-                url, headers=headers, json=payload
-            ) as resp:
-                if resp.status >= 400:
-                    body = await resp.text()
-                    logger.error(
-                        "WhatsApp media send error %s: %s", resp.status, body
-                    )
-                    return False
-                return True
-        except aiohttp.ClientError:
-            logger.exception("Failed to send WhatsApp media")
-            return False
-
-    async def _download_media(self, media_id: str) -> bytes | None:
-        """Download media content from WhatsApp via the Graph API.
-
-        Two-step process:
-        1. GET media metadata to obtain the download URL.
-        2. GET the download URL for the actual file bytes.
-        """
-        if not self._http_session:
-            return None
-
-        headers = {"Authorization": f"Bearer {self._access_token}"}
-
-        # Step 1: Get the download URL
-        meta_url = f"{_GRAPH_API_BASE}/{self._api_version}/{media_id}"
-        try:
-            async with self._http_session.get(
-                meta_url, headers=headers
-            ) as resp:
-                if resp.status >= 400:
-                    logger.error(
-                        "Failed to get media URL for %s", media_id
-                    )
-                    return None
-                meta = await resp.json()
-                download_url = meta.get("url")
-                if not download_url:
-                    return None
-        except aiohttp.ClientError:
-            logger.exception(
-                "Failed to fetch media metadata for %s", media_id
-            )
-            return None
-
-        # Step 2: Download the actual file
-        try:
-            async with self._http_session.get(
-                download_url, headers=headers
-            ) as resp:
-                if resp.status >= 400:
-                    logger.error("Failed to download media %s", media_id)
-                    return None
-                return await resp.read()
-        except aiohttp.ClientError:
-            logger.exception("Failed to download media %s", media_id)
-            return None
+        self._write_cmd({
+            "type": "send",
+            "data": {"to": to, "text": text, "files": file_paths},
+        })
+        return True
 
     # ---- helpers ----
 
     @staticmethod
-    def _split_text(text: str) -> list[str]:
-        """Split text into chunks of at most 4096 characters.
-
-        Prefers splitting at paragraph boundaries (double newline), then
-        sentence boundaries, falling back to a hard split.
-        """
-        if len(text) <= _MAX_TEXT_LENGTH:
+    def _split_text(text: str, max_len: int = _MAX_TEXT_LENGTH) -> list[str]:
+        """Split text into chunks. Prefers paragraph, then sentence, then hard."""
+        if len(text) <= max_len:
             return [text]
 
         chunks: list[str] = []
         remaining = text
 
-        while len(remaining) > _MAX_TEXT_LENGTH:
-            # Try paragraph boundary
-            split_at = remaining.rfind("\n\n", 0, _MAX_TEXT_LENGTH)
+        while len(remaining) > max_len:
+            split_at = remaining.rfind("\n\n", 0, max_len)
             if split_at > 0:
                 chunks.append(remaining[:split_at])
                 remaining = remaining[split_at + 2:]
                 continue
 
-            # Try sentence boundary
             for sep in (". ", "! ", "? ", ".\n"):
-                split_at = remaining.rfind(sep, 0, _MAX_TEXT_LENGTH)
+                split_at = remaining.rfind(sep, 0, max_len)
                 if split_at > 0:
-                    # Include the punctuation mark, skip the separator
                     chunks.append(remaining[: split_at + 1])
-                    remaining = remaining[split_at + 1 :].lstrip()
+                    remaining = remaining[split_at + 1:].lstrip()
                     break
             else:
-                # Hard split
-                chunks.append(remaining[:_MAX_TEXT_LENGTH])
-                remaining = remaining[_MAX_TEXT_LENGTH:]
+                chunks.append(remaining[:max_len])
+                remaining = remaining[max_len:]
 
         if remaining:
             chunks.append(remaining)

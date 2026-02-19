@@ -14,6 +14,7 @@ The gateway supports multiple messaging platforms through a pluggable adapter sy
 - **Telegram** — Telegram Bot API adapter. Handles long-polling or webhook-based message receipt, message formatting (Markdown), and media attachments.
 - **Discord** — Discord bot adapter. Manages guild connections, channel routing, slash commands, and rich embeds.
 - **Slack** — Slack app adapter. Handles Events API subscriptions, interactive messages, slash commands, and thread-based conversations.
+- **WhatsApp** — WhatsApp Cloud API adapter. Receives messages via Meta webhook, sends responses via the Graph API. Supports text, images, documents, audio, and video. Verifies webhook signatures when app_secret is configured. Splits long messages at paragraph boundaries.
 
 Each adapter normalizes inbound messages into a common internal format before passing them to the authentication and routing pipeline.
 

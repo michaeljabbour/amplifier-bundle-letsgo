@@ -12,6 +12,7 @@ from letsgo_gateway.channels.webhook import WebhookChannel
 from letsgo_gateway.channels.telegram import TelegramChannel
 from letsgo_gateway.channels.discord import DiscordChannel
 from letsgo_gateway.channels.slack import SlackChannel
+from letsgo_gateway.channels.whatsapp import WhatsAppChannel
 from letsgo_gateway.models import ChannelType, OutboundMessage
 
 
@@ -101,3 +102,155 @@ async def test_slack_stub_raises():
         await adapter.send(
             OutboundMessage(ChannelType.SLACK, "sl", None, "hi")
         )
+
+
+# ---------------------------------------------------------------------------
+# WhatsApp tests
+# ---------------------------------------------------------------------------
+
+
+def _make_whatsapp_channel(**overrides: object) -> WhatsAppChannel:
+    """Create a WhatsAppChannel with test defaults."""
+    config: dict = {**overrides}
+    return WhatsAppChannel("wa-test", config)
+
+
+def _bridge_message_data(
+    sender: str = "15551234567@c.us",
+    text: str = "Hello there",
+    files: list | None = None,
+) -> dict:
+    """Build bridge message data (the 'data' field from a bridge event)."""
+    return {
+        "id": "test_123",
+        "from": sender,
+        "sender": "Test User",
+        "text": text,
+        "files": files or [],
+        "timestamp": 1700000000,
+        "messageType": "chat",
+    }
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_handle_inbound_creates_message():
+    """Bridge message event produces a correct InboundMessage."""
+    ch = _make_whatsapp_channel()
+    received = []
+
+    async def capture(msg):
+        received.append(msg)
+        return None
+
+    ch.set_on_message(capture)
+    await ch._handle_inbound(_bridge_message_data())
+
+    assert len(received) == 1
+    msg = received[0]
+    assert msg.channel == ChannelType.WHATSAPP
+    assert msg.sender_id == "15551234567@c.us"
+    assert msg.sender_label == "Test User"
+    assert msg.text == "Hello there"
+    assert msg.thread_id == "15551234567@c.us"
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_handle_inbound_with_files():
+    """Bridge message with files populates attachments."""
+    ch = _make_whatsapp_channel()
+    received = []
+
+    async def capture(msg):
+        received.append(msg)
+        return None
+
+    ch.set_on_message(capture)
+    await ch._handle_inbound(_bridge_message_data(files=["/tmp/photo.jpg"]))
+
+    assert len(received) == 1
+    assert len(received[0].attachments) == 1
+    assert received[0].attachments[0]["path"] == "/tmp/photo.jpg"
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_handle_inbound_no_callback():
+    """No crash when _on_message is not set."""
+    ch = _make_whatsapp_channel()
+    # Should not raise
+    await ch._handle_inbound(_bridge_message_data())
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_bridge_event_dispatch():
+    """_handle_bridge_event dispatches message events."""
+    ch = _make_whatsapp_channel()
+    received = []
+
+    async def capture(msg):
+        received.append(msg)
+        return None
+
+    ch.set_on_message(capture)
+    event = {"type": "message", "data": _bridge_message_data()}
+    await ch._handle_bridge_event(event)
+
+    assert len(received) == 1
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_bridge_event_ready():
+    """Ready event sets the _ready flag."""
+    ch = _make_whatsapp_channel()
+    assert not ch._ready.is_set()
+
+    await ch._handle_bridge_event({"type": "ready", "data": {"phone": "15551234567"}})
+
+    assert ch._ready.is_set()
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_bridge_event_disconnect_clears_ready():
+    """Disconnect event clears the _ready flag."""
+    ch = _make_whatsapp_channel()
+    ch._ready.set()
+
+    await ch._handle_bridge_event({"type": "disconnect", "data": {"reason": "logout"}})
+
+    assert not ch._ready.is_set()
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_node_not_found():
+    """start() logs error and stays not-running when node is not on PATH."""
+    ch = _make_whatsapp_channel(node_path=None)
+    await ch.start()
+    assert not ch._running
+
+
+def test_whatsapp_split_text_short():
+    """Short text returns a single chunk."""
+    assert WhatsAppChannel._split_text("short text") == ["short text"]
+
+
+def test_whatsapp_split_text_at_paragraph():
+    """Long text splits at paragraph boundary when possible."""
+    para1 = "a" * 3000
+    para2 = "b" * 3000
+    text = para1 + "\n\n" + para2
+
+    chunks = WhatsAppChannel._split_text(text)
+
+    assert len(chunks) == 2
+    assert chunks[0] == para1
+    assert chunks[1] == para2
+
+
+def test_whatsapp_split_text_hard():
+    """Text with no natural breaks hard-splits at 4000."""
+    text = "a" * 5000
+
+    chunks = WhatsAppChannel._split_text(text)
+
+    assert len(chunks) == 2
+    assert len(chunks[0]) == 4000
+    assert len(chunks[1]) == 1000
