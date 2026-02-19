@@ -73,16 +73,37 @@ class WhatsAppChannel(ChannelAdapter):
             )
             return
 
-        # Check that npm deps are installed
+        # Auto-install npm deps if missing
         pkg_dir = _BRIDGE_SCRIPT.parent
         if not (pkg_dir / "node_modules" / "whatsapp-web.js").exists():
-            logger.error(
-                "WhatsApp adapter '%s': node_modules not found. "
-                "Run 'npm install' in %s",
+            npm_path = shutil.which("npm")
+            if not npm_path:
+                logger.error(
+                    "WhatsApp adapter '%s': npm not found. "
+                    "Install Node.js (includes npm) and retry.",
+                    self.name,
+                )
+                return
+            logger.info(
+                "WhatsApp adapter '%s': installing dependencies "
+                "(first run, this takes a minute)...",
                 self.name,
-                pkg_dir,
             )
-            return
+            proc = await asyncio.create_subprocess_exec(
+                npm_path, "install", "--production",
+                cwd=str(pkg_dir),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                logger.error(
+                    "npm install failed (exit %s): %s",
+                    proc.returncode,
+                    stderr.decode()[:500],
+                )
+                return
+            logger.info("WhatsApp dependencies installed")
 
         env = {
             "HOME": str(Path.home()),

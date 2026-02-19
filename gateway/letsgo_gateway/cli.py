@@ -6,8 +6,35 @@ import argparse
 import asyncio
 import logging
 import signal
+from pathlib import Path
 
 from .daemon import GatewayDaemon
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_CONFIG = """\
+# LetsGo Gateway configuration
+# Created automatically on first run.
+
+channels:
+  whatsapp:
+    type: whatsapp
+    # QR code auth — no API keys needed.
+    # Scan the code that appears in this terminal with your WhatsApp app.
+    # Session persists in ~/.letsgo/whatsapp-session/ so you only scan once.
+"""
+
+
+def _ensure_config(config_path: str) -> str:
+    """Create a default config file if none exists. Returns the resolved path."""
+    path = Path(config_path).expanduser()
+    if path.exists():
+        return str(path)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_DEFAULT_CONFIG)
+    logger.info("Created default config at %s (WhatsApp enabled)", path)
+    return str(path)
 
 
 def main() -> None:
@@ -16,12 +43,6 @@ def main() -> None:
         "--config",
         default="~/.letsgo/gateway/config.yaml",
         help="Config file path",
-    )
-    parser.add_argument(
-        "--host", default="127.0.0.1", help="Bind host"
-    )
-    parser.add_argument(
-        "--port", type=int, default=8080, help="Bind port"
     )
     parser.add_argument(
         "--log-level",
@@ -36,7 +57,8 @@ def main() -> None:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
-    daemon = GatewayDaemon(config_path=args.config)
+    config_path = _ensure_config(args.config)
+    daemon = GatewayDaemon(config_path=config_path)
 
     loop = asyncio.new_event_loop()
 
