@@ -1,0 +1,11 @@
+bundle:
+  name: behavior-memory-capture
+  version: 1.0.0
+  description: Auto-capture hook — extracts observations from tool executions
+
+hooks:
+  - module: hooks-memory-capture
+    source: ../modules/hooks-memory-capture
+    config:
+      min_content_length: 50
+      auto_summarize_interval: 10

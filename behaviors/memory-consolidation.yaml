@@ -1,0 +1,16 @@
+bundle:
+  name: behavior-memory-consolidation
+  version: 1.0.0
+  description: Self-amplifying consolidation — boost accessed, decay unused
+
+hooks:
+  - module: hooks-memory-consolidation
+    source: ../modules/hooks-memory-consolidation
+    config:
+      decay_rate: 0.02
+      access_boost_factor: 0.03
+      min_importance: 0.05
+      max_unaccessed_age_days: 90
+      protected_types:
+        - decision
+        - discovery

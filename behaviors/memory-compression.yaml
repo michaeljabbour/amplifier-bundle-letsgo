@@ -1,0 +1,13 @@
+bundle:
+  name: behavior-memory-compression
+  version: 1.0.0
+  description: Compositional compression — cluster and merge old similar memories
+
+hooks:
+  - module: hooks-memory-compression
+    source: ../modules/hooks-memory-compression
+    config:
+      similarity_threshold: 0.50
+      min_cluster_size: 3
+      min_age_days: 7
+      max_batch_size: 200

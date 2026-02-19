@@ -1,0 +1,16 @@
+[project]
+name = "amplifier-module-hooks-memory-boundaries"
+version = "0.1.0"
+description = "Event segmentation via contextual boundary detection"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.entry-points."amplifier.modules"]
+hooks-memory-boundaries = "amplifier_module_hooks_memory_boundaries:mount"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["amplifier_module_hooks_memory_boundaries"]

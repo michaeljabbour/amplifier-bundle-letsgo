@@ -29,3 +29,4 @@ hooks:
 context:
   include:
     - letsgo:context/memory-awareness.md
+    - letsgo:context/memory-system-awareness.md

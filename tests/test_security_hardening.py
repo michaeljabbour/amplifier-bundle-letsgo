@@ -18,7 +18,10 @@ import pytest
 from amplifier_module_hooks_tool_policy import ToolPolicyHook
 from amplifier_module_tool_sandbox import SandboxTool
 from amplifier_module_hooks_telemetry import TelemetryCollector
-from amplifier_module_hooks_memory_inject import _allow_by_sensitivity as inject_allow
+# _allow_by_sensitivity was removed from inject hook during dedup cleanup.
+# Use the store's public API instead — both modules shared identical logic.
+from amplifier_module_tool_memory_store import MemoryStore
+inject_allow = MemoryStore.allow_by_sensitivity
 from amplifier_module_tool_memory_store import MemoryStore
 from amplifier_module_tool_memory_store import (
     _allow_by_sensitivity as store_allow,

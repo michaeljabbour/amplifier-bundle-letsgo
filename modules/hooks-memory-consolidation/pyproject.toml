@@ -1,0 +1,16 @@
+[project]
+name = "amplifier-module-hooks-memory-consolidation"
+version = "0.1.0"
+description = "Self-amplifying memory consolidation inspired by biological replay"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.entry-points."amplifier.modules"]
+hooks-memory-consolidation = "amplifier_module_hooks_memory_consolidation:mount"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["amplifier_module_hooks_memory_consolidation"]

@@ -1,0 +1,44 @@
+schema: v1.7.0
+
+name: setup-wizard
+description: Interactive first-run setup wizard for LetsGo gateway configuration
+
+context:
+  variables: {}
+
+stages:
+  - name: configure
+    description: Walk user through initial LetsGo configuration choices
+    steps:
+      - agent: self
+        instruction: >
+          Walk the user through initial LetsGo configuration. Ask about:
+          1) Which messaging channels to enable (webhook, telegram, discord, slack),
+          2) Bot tokens/credentials for each channel,
+          3) Heartbeat interval preference (default: 3600 seconds),
+          4) Whether to enable careful_mode for tool policy.
+          Present a summary of choices.
+    approval: true
+
+  - name: provision
+    description: Set up gateway infrastructure based on configuration choices
+    steps:
+      - agent: self
+        instruction: >
+          Based on the configuration from stage 1, set up the gateway:
+          1) Store channel credentials using the secrets tool,
+          2) Create gateway config file,
+          3) Test channel connectivity.
+          Report results.
+    approval: true
+
+  - name: activate
+    description: Finalize setup and start the gateway
+    steps:
+      - agent: self
+        instruction: >
+          Finalize setup:
+          1) Start the gateway daemon,
+          2) Send a test message through each enabled channel,
+          3) Create initial cron jobs if requested.
+          Provide a summary of the running gateway with connection details.

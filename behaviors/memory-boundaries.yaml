@@ -1,0 +1,11 @@
+bundle:
+  name: behavior-memory-boundaries
+  version: 1.0.0
+  description: Event segmentation — detects contextual boundaries in tool activity
+
+hooks:
+  - module: hooks-memory-boundaries
+    source: ../modules/hooks-memory-boundaries
+    config:
+      window_size: 5
+      similarity_threshold: 0.25

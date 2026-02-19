@@ -1,0 +1,8 @@
+bundle:
+  name: behavior-gateway
+  version: 1.0.0
+  description: Gateway messaging capabilities — channel management, pairing, routing, cron
+
+context:
+  include:
+    - letsgo:context/gateway-awareness.md

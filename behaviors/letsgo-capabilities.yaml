@@ -8,5 +8,14 @@ includes:
   - bundle: letsgo:behaviors/secrets
   - bundle: letsgo:behaviors/sandbox
   - bundle: letsgo:behaviors/observability
-  - bundle: letsgo:behaviors/memory-store
-  - bundle: letsgo:behaviors/memory-inject
+  # Memory system (order matters — capabilities must register before consumers)
+  - bundle: letsgo:behaviors/memory-store          # 1. Data layer — registers memory.store
+  - bundle: letsgo:behaviors/memory-memorability   # 2. Scoring capability — before capture
+  - bundle: letsgo:behaviors/memory-boundaries     # 3. Boundary detection — before capture
+  - bundle: letsgo:behaviors/memory-capture        # 4. Auto-capture from tool:post
+  - bundle: letsgo:behaviors/memory-temporal       # 5. Temporal classification capability
+  - bundle: letsgo:behaviors/memory-consolidation  # 6. Decay/boost cycle at session:end
+  - bundle: letsgo:behaviors/memory-compression    # 7. Cluster merging at session:end
+  - bundle: letsgo:behaviors/memory-inject         # 8. Prompt injection — reads from store last
+  # Gateway
+  - bundle: letsgo:behaviors/gateway

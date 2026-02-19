@@ -1,0 +1,29 @@
+schema: v1.7.0
+
+name: heartbeat-check
+description: Periodic agent health check — system status, memory review, and recommendations
+
+context:
+  variables:
+    heartbeat_interval:
+      default: 3600
+
+steps:
+  - agent: self
+    instruction: >
+      Check the health of all active sessions and the gateway daemon. Report:
+      running channels, session count, last activity timestamps, any errors in
+      telemetry logs.
+
+  - agent: letsgo:memory-curator
+    instruction: >
+      Retrieve recent memories from the last {{heartbeat_interval}} seconds.
+      Identify any unresolved issues, pending tasks, or important context that
+      should be surfaced.
+
+  - agent: self
+    instruction: >
+      Synthesize the health check and memory review into a brief status report.
+      Format: 1) System Health (channels, sessions, errors), 2) Active Context
+      (recent memories, pending items), 3) Recommendations (actions to take).
+      Keep to 2-3 sentences per section.

@@ -1,20 +1,27 @@
-# Memory Maintenance — automated cleanup, deduplication, and optimization.
+# Memory Maintenance — bio-inspired cleanup, consolidation, compression, and optimization.
+# Models biological memory processes: consolidation (strengthen/decay), compression (cluster/merge),
+# deduplication, and summarization — mimicking how brains optimize storage during sleep.
 # Flat recipe: sequential steps, fully automated.
 # Usage: recipes execute letsgo:recipes/memory-maintenance.yaml
 
 name: memory-maintenance
-description: Automated memory cleanup — audit, deduplicate, summarize old entries, and optimize indexes
-version: 1.0.0
+description: Bio-inspired memory maintenance pipeline — audit, consolidate (boost/decay), compress (cluster/merge), deduplicate, summarize, and report
+version: 2.0.0
 author: letsgo
 tags:
   - memory
   - maintenance
   - cleanup
   - optimization
+  - bio-inspired
+  - consolidation
+  - compression
 
 context:
   summarize_older_than_days: "30"
   similarity_threshold: "0.85"
+  decay_days_threshold: "14"
+  importance_floor: "0.2"
 
 steps:
   - id: audit-memories
@@ -28,17 +35,93 @@ steps:
       4. Find potential duplicates with similarity above {{similarity_threshold}}
       5. List memories with no tags or categories (uncategorized)
       6. Report the top 5 most-accessed and top 5 least-accessed memories
+      7. Identify memories not accessed in the last {{decay_days_threshold}} days
+      8. Report the current importance score distribution (how many at each 0.1 bucket)
 
       Present findings as a structured audit report with counts and specific examples.
     output: audit_report
     timeout: 180
 
+  - id: consolidation-pass
+    agent: letsgo:memory-curator
+    prompt: |
+      Run a bio-inspired consolidation pass on the memory store.
+      This mimics how biological brains strengthen frequently-used pathways
+      and let unused ones fade during sleep.
+
+      Using the audit findings:
+      {{audit_report}}
+
+      Perform these consolidation operations:
+
+      **Decay — weaken unused memories:**
+      1. Use `search_memories` to find memories not accessed in {{decay_days_threshold}}+ days
+         with importance below 0.5
+      2. For each, use `update_memory` to reduce importance by 0.1 (floor at {{importance_floor}})
+      3. Any memory whose importance has decayed to {{importance_floor}} or below AND is older
+         than {{summarize_older_than_days}} days — use `delete_memory` to remove it
+
+      **Boost — strengthen frequently-accessed memories:**
+      1. Use `search_memories` to find memories accessed 3+ times in the last {{decay_days_threshold}} days
+      2. For each with importance < 0.9, use `update_memory` to increase importance by 0.1 (cap at 1.0)
+
+      **Purge — clean up expired entries:**
+      1. Call `purge_expired` to remove any memories past their TTL
+
+      Report:
+      - Number of memories decayed (with before/after importance)
+      - Number of memories boosted
+      - Number of memories deleted (decayed to floor)
+      - Number of expired memories purged
+    output: consolidation_report
+    timeout: 300
+
+  - id: compression-pass
+    agent: letsgo:memory-curator
+    prompt: |
+      Run a bio-inspired compression pass on the memory store.
+      This mimics how biological brains merge related episodic memories
+      into compact semantic knowledge over time.
+
+      Using the audit and consolidation findings:
+      {{audit_report}}
+      {{consolidation_report}}
+
+      Perform these compression operations:
+
+      **Cluster similar old memories:**
+      1. Use `search_memories` to find memories older than {{summarize_older_than_days}} days
+      2. Identify clusters of 3+ related memories on the same topic or decision
+      3. For each cluster, use `summarize_old` with max_age_days={{summarize_older_than_days}}
+         to compress them into consolidated entries
+
+      **Merge fragmented knowledge:**
+      1. Search for memories that reference the same subject but are stored as separate entries
+         (e.g., multiple small facts about the same system or concept)
+      2. Where possible, merge them into single comprehensive memories using `update_memory`
+         on the best entry and `delete_memory` on the fragments
+
+      Do NOT compress or merge:
+      - Memories with importance > 0.8
+      - Memories tagged as "permanent" or "pinned"
+      - Memories created in the last {{decay_days_threshold}} days
+
+      Report:
+      - Number of clusters identified and compressed
+      - Number of fragmented memories merged
+      - Estimated storage reduction
+      - Topics/subjects that were consolidated
+    output: compression_report
+    timeout: 300
+
   - id: deduplicate
     agent: letsgo:memory-curator
     prompt: |
-      Based on the audit findings below, merge duplicate memories:
+      Based on the previous findings, merge any remaining duplicate memories:
 
       {{audit_report}}
+      {{consolidation_report}}
+      {{compression_report}}
 
       For each duplicate cluster identified (similarity > {{similarity_threshold}}):
       1. Keep the most complete and recent version
@@ -56,7 +139,7 @@ steps:
   - id: summarize-old
     agent: letsgo:memory-curator
     prompt: |
-      Summarize verbose memories older than {{summarize_older_than_days}} days.
+      Summarize any remaining verbose memories older than {{summarize_older_than_days}} days.
 
       For each memory that exceeds 500 characters and is older than the threshold:
       1. Create a concise summary preserving key facts, decisions, and context
@@ -81,6 +164,12 @@ steps:
       ## Audit
       {{audit_report}}
 
+      ## Consolidation (Bio-inspired)
+      {{consolidation_report}}
+
+      ## Compression (Bio-inspired)
+      {{compression_report}}
+
       ## Deduplication
       {{dedup_report}}
 
@@ -88,8 +177,11 @@ steps:
       {{summarize_report}}
 
       Format as a concise maintenance report with:
-      - **Before/After** — total memory count, storage size, index health
-      - **Actions Taken** — merges performed, summaries created
+      - **Before/After** — total memory count, storage size, importance distribution
+      - **Consolidation** — memories boosted, decayed, deleted, expired
+      - **Compression** — clusters merged, fragments consolidated
+      - **Deduplication** — duplicates found and merged
+      - **Summarization** — verbose memories compressed
       - **Health Score** — rate the memory system health (good/fair/needs-attention)
       - **Recommendations** — tagging improvements, retention adjustments, next maintenance date
     output: maintenance_report

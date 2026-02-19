@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 OBSERVATION_TYPES: list[str] = [
     "bugfix", "feature", "refactor", "change", "discovery", "decision",
+    "session_summary", "compressed_summary",
 ]
 
 CONCEPT_TYPES: list[str] = [
@@ -57,13 +58,19 @@ CONCEPT_TYPES: list[str] = [
 _STOPWORDS: frozenset[str] = frozenset(
     {
         "a",
+        "all",
+        "also",
         "an",
         "and",
         "are",
         "as",
         "at",
         "be",
+        "been",
+        "but",
         "by",
+        "can",
+        "each",
         "for",
         "from",
         "has",
@@ -71,16 +78,24 @@ _STOPWORDS: frozenset[str] = frozenset(
         "how",
         "i",
         "in",
+        "into",
         "is",
         "it",
         "its",
+        "just",
         "me",
+        "more",
         "my",
         "not",
         "of",
         "on",
+        "one",
         "or",
+        "our",
+        "out",
         "so",
+        "some",
+        "than",
         "that",
         "the",
         "this",
@@ -99,6 +114,8 @@ _STOPWORDS: frozenset[str] = frozenset(
 
 _DEFAULT_TRUST = 0.5
 _DEFAULT_SENSITIVITY = "public"
+
+STOPWORDS: frozenset = _STOPWORDS  # Public alias for consumers
 
 # ---------------------------------------------------------------------------
 # Scoring helpers (mirrors hooks-memory-inject logic)
@@ -842,13 +859,20 @@ class MemoryStore:
             min_score=float(s.get("min_score", 0.35)),
         )
         raw = self._search_raw(prompt, candidate_limit=candidate_limit)
-        return self._rerank_and_filter(
+        results = self._rerank_and_filter(
             raw,
             cfg=cfg,
             limit=limit,
             allow_private=g.get("allow_private", False),
             allow_secret=g.get("allow_secret", False),
         )
+
+        # Self-amplifying access tracking — boost retrieved memories
+        result_ids = [m["id"] for m in results if "id" in m]
+        if result_ids:
+            self.get(result_ids, _increment_access=True)
+
+        return results
 
     def search_ids(
         self,
@@ -939,6 +963,43 @@ class MemoryStore:
         finally:
             conn.close()
 
+    # -- Public scoring API (for hooks-memory-inject and other consumers) ---
+
+    @staticmethod
+    def extract_keywords(text: str, max_keywords: int = 8) -> list[str]:
+        """Extract meaningful keywords from text, stripping stopwords."""
+        return _extract_keywords(text, max_keywords=max_keywords)
+
+    @staticmethod
+    def compute_score(
+        item: dict,
+        *,
+        match_score: float,
+        weights: dict | None = None,
+        half_life_days: float = 21.0,
+    ) -> float:
+        """Compute composite relevance score for a memory."""
+        cfg = _ScoringConfig(
+            w_match=weights.get("match", 0.55) if weights else 0.55,
+            w_recency=weights.get("recency", 0.20) if weights else 0.20,
+            w_importance=weights.get("importance", 0.15) if weights else 0.15,
+            w_trust=weights.get("trust", 0.10) if weights else 0.10,
+            half_life_days=half_life_days,
+        )
+        return _compute_score(item, match_score=match_score, cfg=cfg)
+
+    @staticmethod
+    def allow_by_sensitivity(
+        sensitivity: str,
+        *,
+        allow_private: bool = False,
+        allow_secret: bool = False,
+    ) -> bool:
+        """Check if a memory's sensitivity level allows access."""
+        return _allow_by_sensitivity(
+            sensitivity, allow_private=allow_private, allow_secret=allow_secret
+        )
+
     # -- Max memories eviction -----------------------------------------------
 
     def _enforce_limit(self) -> None:
@@ -949,13 +1010,16 @@ class MemoryStore:
         """
         if self._max_memories <= 0:
             return
-        total = self.count()
-        if total <= self._max_memories:
-            return
-        to_remove = total - self._max_memories
         with self._write_lock:
             conn = self._rw_connection()
             try:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS cnt FROM memories"
+                ).fetchone()
+                total = row["cnt"] if row else 0
+                if total <= self._max_memories:
+                    return
+                to_remove = total - self._max_memories
                 conn.execute(
                     "DELETE FROM memories WHERE id IN ("
                     "SELECT id FROM memories "

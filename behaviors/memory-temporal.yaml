@@ -1,0 +1,18 @@
+bundle:
+  name: behavior-memory-temporal
+  version: 1.0.0
+  description: Multi-scale temporal scaffolding — balanced retrieval across timescales
+
+hooks:
+  - module: hooks-memory-temporal
+    source: ../modules/hooks-memory-temporal
+    config:
+      allocation:
+        immediate: 1
+        task: 2
+        session: 1
+        project: 1
+      scale_boundaries:
+        immediate: 300
+        task: 1800
+        session: 7200

@@ -1,0 +1,14 @@
+bundle:
+  name: behavior-memory-memorability
+  version: 1.0.0
+  description: Memorability scoring — selective memory encoding
+
+hooks:
+  - module: hooks-memory-memorability
+    source: ../modules/hooks-memory-memorability
+    config:
+      base_threshold: 0.30
+      distinctiveness_weight: 0.30
+      salience_weight: 0.25
+      substance_weight: 0.25
+      type_weight: 0.20

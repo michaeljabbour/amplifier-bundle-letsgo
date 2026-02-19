@@ -16,3 +16,4 @@ tools:
 context:
   include:
     - letsgo:context/memory-store-awareness.md
+    - letsgo:context/memory-system-awareness.md

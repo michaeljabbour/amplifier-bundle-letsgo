@@ -1,0 +1,16 @@
+[project]
+name = "amplifier-module-hooks-memory-temporal"
+version = "0.1.0"
+description = "Multi-scale temporal scaffolding for balanced memory retrieval"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.entry-points."amplifier.modules"]
+hooks-memory-temporal = "amplifier_module_hooks_memory_temporal:mount"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["amplifier_module_hooks_memory_temporal"]
