@@ -82,3 +82,28 @@ def test_discover_entry_point_overrides_builtin():
         channels = discover_channels()
 
     assert channels["webhook"] is CustomWebhook
+
+
+def test_daemon_uses_registry(tmp_path):
+    """GatewayDaemon uses discover_channels() instead of hardcoded maps."""
+    from letsgo_gateway.daemon import GatewayDaemon
+
+    config = {
+        "auth": {
+            "pairing_db_path": str(tmp_path / "pairing.json"),
+            "max_messages_per_minute": 60,
+            "code_ttl_seconds": 300,
+        },
+        "channels": {
+            "my-hook": {"type": "webhook", "port": 9999},
+        },
+        "cron": {
+            "log_path": str(tmp_path / "cron.jsonl"),
+        },
+    }
+    d = GatewayDaemon(config=config)
+    assert "my-hook" in d.channels
+    # Verify the adapter is a WebhookChannel (from registry discovery)
+    from letsgo_gateway.channels.webhook import WebhookChannel
+
+    assert isinstance(d.channels["my-hook"], WebhookChannel)
