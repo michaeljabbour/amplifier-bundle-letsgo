@@ -107,3 +107,27 @@ def test_daemon_uses_registry(tmp_path):
     from letsgo_gateway.channels.webhook import WebhookChannel
 
     assert isinstance(d.channels["my-hook"], WebhookChannel)
+
+
+def test_channel_type_accepts_custom_string():
+    """ChannelType accepts arbitrary strings for plugin channels."""
+    from letsgo_gateway.models import ChannelType, InboundMessage
+
+    # Built-in values still work
+    assert ChannelType.WEBHOOK == "webhook"
+    assert ChannelType.TELEGRAM == "telegram"
+
+    # Custom plugin channel type can be created
+    custom = ChannelType("signal")
+    assert custom == "signal"
+    assert str(custom) == "signal"
+
+    # Can be used in InboundMessage
+    msg = InboundMessage(
+        channel=ChannelType("signal"),
+        channel_name="my-signal",
+        sender_id="user1",
+        sender_label="User",
+        text="hello from signal",
+    )
+    assert msg.channel == "signal"

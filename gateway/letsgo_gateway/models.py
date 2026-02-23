@@ -9,11 +9,31 @@ from typing import Any
 
 
 class ChannelType(str, Enum):
+    """Channel type identifier.
+
+    Built-in values are defined as enum members. Plugin channels can use
+    arbitrary strings — call ``ChannelType("signal")`` and it returns
+    the string as-is when the value is not a known member.
+    """
+
     WEBHOOK = "webhook"
     TELEGRAM = "telegram"
     DISCORD = "discord"
     SLACK = "slack"
     WHATSAPP = "whatsapp"
+
+    def __str__(self) -> str:
+        return self.value
+
+    @classmethod
+    def _missing_(cls, value: object) -> ChannelType | None:
+        """Accept arbitrary string values for plugin channel types."""
+        if isinstance(value, str):
+            obj = str.__new__(cls, value)
+            obj._value_ = value
+            obj._name_ = value.upper()
+            return obj
+        return None
 
 
 class AuthStatus(str, Enum):
