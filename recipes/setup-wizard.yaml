@@ -1,44 +1,201 @@
 schema: v1.7.0
 
 name: setup-wizard
-description: Interactive first-run setup wizard for LetsGo gateway configuration
+description: Interactive 4-stage setup wizard for LetsGo — provider, channels, satellites, daemon
+version: 2.0.0
+author: letsgo
+tags:
+  - setup
+  - onboarding
+  - wizard
 
 context:
   variables: {}
 
 stages:
-  - name: configure
-    description: Walk user through initial LetsGo configuration choices
+  - name: provider-setup
+    description: Welcome user and configure AI provider with encrypted secret storage
     steps:
-      - agent: self
-        instruction: >
-          Walk the user through initial LetsGo configuration. Ask about:
-          1) Which messaging channels to enable (webhook, telegram, discord, slack),
-          2) Bot tokens/credentials for each channel,
-          3) Heartbeat interval preference (default: 3600 seconds),
-          4) Whether to enable careful_mode for tool policy.
-          Present a summary of choices.
-    approval: true
+      - id: detect-existing
+        agent: self
+        prompt: >
+          Check for existing LetsGo configuration:
+          1. Look for ~/.letsgo/gateway/config.yaml
+          2. Check if any secrets are already stored (use secrets tool list_secrets)
+          3. If returning user, show what's already configured and ask what to update.
+          4. If fresh install, welcome the user and proceed to provider selection.
+        output: existing_config
+        timeout: 120
 
-  - name: provision
-    description: Set up gateway infrastructure based on configuration choices
-    steps:
-      - agent: self
-        instruction: >
-          Based on the configuration from stage 1, set up the gateway:
-          1) Store channel credentials using the secrets tool,
-          2) Create gateway config file,
-          3) Test channel connectivity.
-          Report results.
-    approval: true
+      - id: configure-provider
+        agent: self
+        prompt: >
+          Based on detection results: {{existing_config}}
 
-  - name: activate
-    description: Finalize setup and start the gateway
+          Walk the user through AI provider setup:
+          1. Provider selection: Anthropic / OpenAI / Azure OpenAI / Ollama / Other
+          2. Collect the API key or endpoint URL
+          3. Store the API key using the secrets tool (set_secret, category: api_key)
+          4. Test the provider connection by making a simple API call
+          5. Present a summary of the configured provider
+
+          IMPORTANT: Never echo back API keys. Store immediately, confirm storage only.
+        output: provider_config
+        timeout: 300
+
+    approval:
+      required: true
+      prompt: |
+        Provider configuration complete:
+
+        {{provider_config}}
+
+        Proceed to channel setup?
+
+  - name: channel-setup
+    description: Select, install, and configure messaging channels
     steps:
-      - agent: self
-        instruction: >
-          Finalize setup:
-          1) Start the gateway daemon,
-          2) Send a test message through each enabled channel,
-          3) Create initial cron jobs if requested.
-          Provide a summary of the running gateway with connection details.
+      - id: select-channels
+        agent: self
+        prompt: >
+          Present available messaging channels to the user.
+
+          Use the gateway's channel registry to discover what's available.
+          Channels fall into three categories:
+
+          **Built-in (no extra install):**
+          - Webhook — HTTP endpoint for integrations
+          - WhatsApp — Personal WhatsApp via QR code
+
+          **Optional (pip install required):**
+          - Telegram — Bot via @BotFather token
+          - Discord — Bot via Developer Portal
+          - Slack — Bot via Socket Mode or Events API
+
+          **Plugin channels (separate packages):**
+          - Signal — Via signal-cli
+          - Matrix — Via matrix-nio
+          - Teams — Via Bot Framework
+
+          Ask which channels they want to enable.
+          For each selected channel, install dependencies if needed:
+          - Telegram: pip install letsgo-gateway[telegram]
+          - Discord: pip install letsgo-gateway[discord]
+          - Slack: pip install letsgo-gateway[slack]
+          - Signal: pip install letsgo-channel-signal
+          - Matrix: pip install letsgo-channel-matrix[nio]
+          - Teams: pip install letsgo-channel-teams[botbuilder]
+        output: selected_channels
+        timeout: 300
+
+      - id: configure-channels
+        agent: self
+        prompt: >
+          For each selected channel ({{selected_channels}}), collect credentials:
+
+          **Telegram:** Bot token from @BotFather
+          **Discord:** Bot token + Guild ID from Developer Portal
+          **Slack:** Bot token (xoxb-) + signing secret + optional app token (xapp-)
+          **Webhook:** Endpoint URL + optional shared secret
+          **WhatsApp:** No credentials needed (QR code auth at start)
+          **Signal:** Phone number for signal-cli registration
+          **Matrix:** Homeserver URL + user ID + access token
+          **Teams:** Microsoft App ID + App Password from Azure
+
+          Store each credential using secrets tool:
+          - Name format: channel/{type}/{name}/{credential}
+          - Category: api_key
+
+          Test each channel connection after storing credentials.
+          Report results per channel.
+        output: channel_config
+        timeout: 600
+
+    approval:
+      required: true
+      prompt: |
+        Channel configuration complete:
+
+        {{channel_config}}
+
+        Proceed to satellite bundle selection?
+
+  - name: satellite-setup
+    description: Select and install optional satellite bundles
+    steps:
+      - id: select-satellites
+        agent: self
+        prompt: >
+          Present optional satellite capabilities:
+
+          **Voice** (amplifier-bundle-letsgo-voice)
+          - Transcribe inbound voice messages
+          - Text-to-speech responses
+          - Works across all channels with voice support
+
+          **Canvas** (amplifier-bundle-letsgo-canvas)
+          - Rich visual output (charts, HTML, SVG)
+          - Web UI at localhost:8080/canvas
+          - Auto-render tool outputs
+
+          **WebChat** (amplifier-bundle-letsgo-webchat)
+          - Web chat interface
+          - Admin dashboard (sessions, channels, cron, usage)
+
+          **Browser** (amplifier-bundle-letsgo-browser)
+          - Browser automation via Playwright
+          - QR code scanning for WhatsApp setup
+
+          **MCP** (amplifier-bundle-letsgo-mcp)
+          - Connect to MCP tool servers
+          - Bridge external tools into Amplifier
+
+          Ask which satellites they want. For each selected:
+          1. pip install the satellite bundle
+          2. Note that the user will need to add it to their root bundle.md includes
+
+          Report which satellites were installed.
+        output: satellite_config
+        timeout: 300
+
+    approval:
+      required: true
+      prompt: |
+        Satellite setup:
+
+        {{satellite_config}}
+
+        Proceed to daemon startup?
+
+  - name: daemon-activate
+    description: Start the gateway daemon and verify everything works
+    steps:
+      - id: create-config
+        agent: self
+        prompt: >
+          Create the gateway daemon configuration file at ~/.letsgo/gateway/config.yaml.
+
+          Include configuration for:
+          - All channels from stage 2: {{channel_config}}
+          - Heartbeat settings (ask user for interval, default 3600 seconds)
+          - Heartbeat channels (which channels should receive heartbeat messages)
+          - Tool policy settings (ask if they want careful_mode)
+
+          Write the config file. Report the final configuration (without secrets).
+        output: daemon_config
+        timeout: 180
+
+      - id: start-daemon
+        agent: self
+        prompt: >
+          Start the LetsGo gateway daemon:
+
+          1. Run: letsgo-gateway --config ~/.letsgo/gateway/config.yaml
+          2. Verify all configured channels connect successfully
+          3. Send a welcome message through each enabled channel:
+             "LetsGo is connected and ready to assist!"
+          4. If heartbeat is enabled, verify the heartbeat schedule is active
+
+          Report: daemon status, channel connection status, test message delivery.
+        output: daemon_status
+        timeout: 300
