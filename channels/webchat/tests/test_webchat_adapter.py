@@ -167,3 +167,89 @@ class TestWebChatChannelChat:
         daemon = MagicMock()
         ch.set_daemon(daemon)
         assert ch._daemon is daemon
+
+
+# ---------------------------------------------------------------------------
+# TestAdminAuthMiddleware
+# ---------------------------------------------------------------------------
+
+_ADMIN_TOKEN = "test-secret-token"
+
+
+def _make_admin_channel(**overrides) -> WebChatChannel:
+    """Create a channel with admin enabled and a token."""
+    config = {
+        "host": "localhost",
+        "port": 0,
+        "admin": {"enabled": True, "token": _ADMIN_TOKEN},
+        **overrides,
+    }
+    ch = WebChatChannel("webchat", config)
+    # Provide a minimal daemon mock so admin handlers don't crash
+    daemon = MagicMock()
+    daemon.session_manager.list_sessions.return_value = []
+    ch.set_daemon(daemon)
+    return ch
+
+
+class TestAdminAuthMiddleware:
+    """Bearer-token auth middleware for /admin/ routes."""
+
+    @pytest.mark.asyncio
+    async def test_valid_token_passes(self):
+        """A valid Bearer token gets 200 on admin endpoints."""
+        ch = _make_admin_channel()
+        await ch.start()
+        try:
+            async with TestClient(TestServer(ch._app)) as client:
+                resp = await client.get(
+                    "/admin/sessions",
+                    headers={"Authorization": f"Bearer {_ADMIN_TOKEN}"},
+                )
+                assert resp.status == 200
+        finally:
+            await ch.stop()
+
+    @pytest.mark.asyncio
+    async def test_invalid_token_returns_401(self):
+        """A wrong Bearer token gets 401."""
+        ch = _make_admin_channel()
+        await ch.start()
+        try:
+            async with TestClient(TestServer(ch._app)) as client:
+                resp = await client.get(
+                    "/admin/sessions",
+                    headers={"Authorization": "Bearer wrong-token"},
+                )
+                assert resp.status == 401
+        finally:
+            await ch.stop()
+
+    @pytest.mark.asyncio
+    async def test_missing_token_returns_401(self):
+        """No Authorization header gets 401."""
+        ch = _make_admin_channel()
+        await ch.start()
+        try:
+            async with TestClient(TestServer(ch._app)) as client:
+                resp = await client.get("/admin/sessions")
+                assert resp.status == 401
+        finally:
+            await ch.stop()
+
+    @pytest.mark.asyncio
+    async def test_non_admin_routes_pass_through(self):
+        """Chat WS endpoint works without auth — middleware only guards /admin/."""
+        ch = _make_admin_channel()
+        callback = AsyncMock(return_value="ok")
+        ch.set_on_message(callback)
+        await ch.start()
+        try:
+            async with TestClient(TestServer(ch._app)) as client:
+                ws = await client.ws_connect("/chat/ws")
+                await ws.send_json({"text": "hi", "sender_id": "u1"})
+                resp = await ws.receive_json()
+                assert resp["text"] == "ok"
+                await ws.close()
+        finally:
+            await ch.stop()
