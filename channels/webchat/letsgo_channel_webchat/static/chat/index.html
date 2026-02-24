@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LetsGo Chat</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --surface: #ffffff;
+    --primary: #0d6efd;
+    --primary-hover: #0b5ed7;
+    --text: #212529;
+    --text-secondary: #6c757d;
+    --border: #dee2e6;
+    --success: #198754;
+    --warning: #ffc107;
+    --danger: #dc3545;
+    --msg-user: #e3f2fd;
+    --msg-bot: #f0f0f0;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  #header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  #header h1 { font-size: 18px; font-weight: 600; }
+  #connection-status {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--danger);
+  }
+  #connection-status.connected { background: var(--success); }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .message {
+    max-width: 75%;
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 14px;
+    line-height: 1.5;
+    word-wrap: break-word;
+  }
+  .message.user {
+    align-self: flex-end;
+    background: var(--msg-user);
+    border-bottom-right-radius: 4px;
+  }
+  .message.bot {
+    align-self: flex-start;
+    background: var(--msg-bot);
+    border-bottom-left-radius: 4px;
+  }
+  .message.pairing {
+    align-self: flex-start;
+    background: #fff3cd;
+    border: 1px solid var(--warning);
+    border-bottom-left-radius: 4px;
+  }
+  .message.error {
+    align-self: center;
+    background: #f8d7da;
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    font-size: 13px;
+  }
+  .message .time {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+  #input-area {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    gap: 8px;
+  }
+  #message-input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: var(--font);
+    outline: none;
+    resize: none;
+  }
+  #message-input:focus { border-color: var(--primary); }
+  #send-btn {
+    padding: 10px 20px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  #send-btn:hover { background: var(--primary-hover); }
+  #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  #sender-bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  #sender-id-input {
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 13px;
+    width: 180px;
+  }
+  #empty-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 15px;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>LetsGo Chat</h1>
+  <div id="connection-status" title="Disconnected"></div>
+</div>
+
+<div id="sender-bar">
+  <label for="sender-id-input">Your ID:</label>
+  <input type="text" id="sender-id-input" placeholder="web-user-1">
+</div>
+
+<div id="messages">
+  <div id="empty-state">Send a message to start chatting...</div>
+</div>
+
+<div id="input-area">
+  <textarea id="message-input" rows="1" placeholder="Type a message..."></textarea>
+  <button id="send-btn" disabled>Send</button>
+</div>
+
+<script>
+(function() {
+  const messagesEl = document.getElementById('messages');
+  const inputEl = document.getElementById('message-input');
+  const sendBtn = document.getElementById('send-btn');
+  const statusEl = document.getElementById('connection-status');
+  const senderInput = document.getElementById('sender-id-input');
+  const emptyState = document.getElementById('empty-state');
+
+  let ws = null;
+  let reconnectDelay = 1000;
+  const MAX_DELAY = 30000;
+
+  // Generate default sender ID
+  senderInput.value = 'web-' + Math.random().toString(36).substr(2, 8);
+
+  function getSenderId() {
+    return senderInput.value.trim() || 'web-anonymous';
+  }
+
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${location.host}/chat/ws`);
+
+    ws.onopen = function() {
+      statusEl.className = 'connected';
+      statusEl.title = 'Connected';
+      sendBtn.disabled = false;
+      reconnectDelay = 1000;
+    };
+
+    ws.onmessage = function(event) {
+      const data = JSON.parse(event.data);
+      addMessage(data.text, data.type || 'response');
+    };
+
+    ws.onclose = function() {
+      statusEl.className = '';
+      statusEl.title = 'Disconnected';
+      sendBtn.disabled = true;
+      setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, MAX_DELAY);
+    };
+
+    ws.onerror = function() {
+      ws.close();
+    };
+  }
+
+  function addMessage(text, type) {
+    if (emptyState) emptyState.remove();
+
+    const div = document.createElement('div');
+    div.className = 'message ' + (type === 'user' ? 'user' : type === 'pairing' ? 'pairing' : type === 'error' ? 'error' : 'bot');
+    div.textContent = text;
+
+    const timeEl = document.createElement('div');
+    timeEl.className = 'time';
+    timeEl.textContent = new Date().toLocaleTimeString();
+    div.appendChild(timeEl);
+
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+    addMessage(text, 'user');
+    ws.send(JSON.stringify({ text: text, sender_id: getSenderId() }));
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+
+  inputEl.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // Auto-resize textarea
+  inputEl.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>
