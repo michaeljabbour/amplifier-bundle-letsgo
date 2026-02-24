@@ -224,6 +224,26 @@ stages:
         output: canvas_config
         timeout: 180
 
+      - id: configure-browser
+        agent: self
+        prompt: >
+          If browser was selected in {{satellite_config}}:
+
+          1. **Verify agent-browser CLI:**
+             - Run: which agent-browser
+             - If not found, install it:
+               npm install -g agent-browser && agent-browser install
+             - Verify: agent-browser --version
+
+          2. **Report browser readiness:**
+             - agent-browser CLI version
+             - Chromium status (bundled with agent-browser)
+             - Note: No API keys needed — browser automation is local
+
+          If browser was NOT selected, skip this step entirely and report "Browser: skipped".
+        output: browser_config
+        timeout: 180
+
     approval:
       required: true
       prompt: |
@@ -234,6 +254,8 @@ stages:
         Voice configuration: {{voice_config}}
 
         Canvas configuration: {{canvas_config}}
+
+        Browser configuration: {{browser_config}}
 
         Proceed to daemon startup?
 
