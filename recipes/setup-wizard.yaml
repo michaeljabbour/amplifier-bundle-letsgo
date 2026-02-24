@@ -244,6 +244,32 @@ stages:
         output: browser_config
         timeout: 180
 
+      - id: configure-webchat
+        agent: self
+        prompt: >
+          If webchat was selected in {{satellite_config}}:
+
+          1. **WebChat channel setup:**
+             - Ask: What port should the webchat server use? (default: 8090)
+             - Ask: Bind to localhost only or all interfaces? (default: localhost)
+             - Note: Chat will be at http://{host}:{port}/chat
+             - Note: Admin dashboard at http://{host}:{port}/admin/
+
+          2. **Admin dashboard setup:**
+             - Ask: Enable admin dashboard? (recommended: yes)
+             - If yes: Generate a random admin token or let user provide one
+             - Store token via secrets tool as "webchat/admin/token" (category: api_key)
+
+          3. **Install webchat channel package:**
+             - Run: pip install letsgo-channel-webchat
+
+          4. **Update gateway config:**
+             - Add webchat channel to ~/.letsgo/gateway/config.yaml
+
+          If webchat was NOT selected, skip this step entirely and report "WebChat: skipped".
+        output: webchat_config
+        timeout: 180
+
     approval:
       required: true
       prompt: |
@@ -256,6 +282,8 @@ stages:
         Canvas configuration: {{canvas_config}}
 
         Browser configuration: {{browser_config}}
+
+        WebChat configuration: {{webchat_config}}
 
         Proceed to daemon startup?
 
