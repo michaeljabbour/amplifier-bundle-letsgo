@@ -4,7 +4,7 @@
 
 name: channel-onboard
 description: Set up a new messaging channel with authentication, pairing, and verification
-version: 1.0.0
+version: 2.0.0
 author: letsgo
 tags:
   - channels
@@ -29,26 +29,57 @@ stages:
 
           Supported channels and their requirements:
 
-          **telegram**:
-          - Bot token (from @BotFather)
-          - Optional: webhook URL, allowed user IDs
-
-          **discord**:
-          - Bot token (from Discord Developer Portal)
-          - Guild ID (server to connect to)
-          - Optional: channel ID, role permissions
-
-          **slack**:
-          - Bot token (xoxb-...)
-          - Signing secret
-          - Optional: channel IDs, workspace restrictions
+          **Built-in channels (no extra install):**
 
           **webhook**:
           - Endpoint URL
           - Shared secret for HMAC verification
           - Optional: custom headers, retry policy
 
-          If channel_type is empty or unsupported, list the supported types and ask the user to choose.
+          **whatsapp**:
+          - No API credentials needed (QR code auth)
+          - Optional: session_dir, files_dir paths
+          - Requires: Node.js installed on system
+
+          **Optional built-in (require pip install letsgo-gateway[name]):**
+
+          **telegram**:
+          - Bot token (from @BotFather)
+          - Optional: webhook URL, allowed user IDs
+          - Install: pip install letsgo-gateway[telegram]
+
+          **discord**:
+          - Bot token (from Discord Developer Portal)
+          - Guild ID (server to connect to)
+          - Optional: channel ID, role permissions
+          - Install: pip install letsgo-gateway[discord]
+
+          **slack**:
+          - Bot token (xoxb-...)
+          - Signing secret
+          - Optional: App-Level Token for Socket Mode (xapp-...)
+          - Install: pip install letsgo-gateway[slack]
+
+          **Plugin channels (separate packages):**
+
+          **signal**:
+          - Phone number registered with Signal
+          - Requires: signal-cli installed on system
+          - Install: pip install letsgo-channel-signal
+
+          **matrix**:
+          - Homeserver URL (e.g., https://matrix.org)
+          - User ID (e.g., @letsgo:matrix.org)
+          - Access token
+          - Install: pip install letsgo-channel-matrix[nio]
+
+          **teams**:
+          - Microsoft App ID (from Azure Bot registration)
+          - Microsoft App Password
+          - Install: pip install letsgo-channel-teams[botbuilder]
+
+          If channel_type is empty or unsupported, list all supported types and ask the user to choose.
+          If the channel is a plugin channel, check if the package is installed. If not, install it.
           If channel_type is valid, list the required credentials for this channel type.
           Validate the format of any provided values (don't test connectivity yet).
 
@@ -77,7 +108,7 @@ stages:
 
           Use tool-secrets to store each credential:
           - Name format: channel/{{channel_type}}/{{channel_name}}/<credential-name>
-          - Category: channel_credential
+          - Category: api_key
 
           Report which credentials were stored (names only, never values).
         output: credential_storage
@@ -113,6 +144,10 @@ stages:
           - **Discord**: Send a message in the configured guild, verify receipt
           - **Slack**: Post a test message to a channel, verify receipt
           - **Webhook**: Send a test payload to the endpoint, verify response
+          - **WhatsApp**: Generate QR code, wait for scan, verify connection
+          - **Signal**: Send a test message to the registered number, verify receipt
+          - **Matrix**: Join a test room, send a message, verify receipt
+          - **Teams**: Send a test message via Bot Framework, verify receipt
 
           Report: pairing status, test message sent/received, any issues.
         output: pairing_result
