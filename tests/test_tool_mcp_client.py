@@ -83,3 +83,77 @@ class TestProtocolConstants:
         assert INITIALIZE == "initialize"
         assert TOOLS_LIST == "tools/list"
         assert TOOLS_CALL == "tools/call"
+
+
+from amplifier_module_tool_mcp_client.config import (
+    ServerConfig,
+    load_server_configs,
+)
+
+
+# ---------------------------------------------------------------------------
+# Config — ServerConfig + load_server_configs
+# ---------------------------------------------------------------------------
+
+
+class TestServerConfig:
+    """Server configuration dataclass."""
+
+    def test_load_stdio_config(self) -> None:
+        raw = {
+            "mcp": {
+                "servers": {
+                    "filesystem": {
+                        "transport": "stdio",
+                        "command": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+                    },
+                },
+            },
+        }
+        configs = load_server_configs(raw)
+        assert "filesystem" in configs
+        cfg = configs["filesystem"]
+        assert cfg.name == "filesystem"
+        assert cfg.transport == "stdio"
+        assert cfg.command == ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+        assert cfg.url is None
+
+    def test_load_http_config(self) -> None:
+        raw = {
+            "mcp": {
+                "servers": {
+                    "remote-api": {
+                        "transport": "streamable-http",
+                        "url": "https://api.example.com/mcp",
+                        "headers": {"Authorization": "Bearer tok123"},
+                    },
+                },
+            },
+        }
+        configs = load_server_configs(raw)
+        cfg = configs["remote-api"]
+        assert cfg.transport == "streamable-http"
+        assert cfg.url == "https://api.example.com/mcp"
+        assert cfg.headers == {"Authorization": "Bearer tok123"}
+
+    def test_stdio_missing_command_raises(self) -> None:
+        raw = {
+            "mcp": {
+                "servers": {
+                    "bad": {"transport": "stdio"},
+                },
+            },
+        }
+        with pytest.raises(ValueError, match="command"):
+            load_server_configs(raw)
+
+    def test_http_missing_url_raises(self) -> None:
+        raw = {
+            "mcp": {
+                "servers": {
+                    "bad": {"transport": "streamable-http"},
+                },
+            },
+        }
+        with pytest.raises(ValueError, match="url"):
+            load_server_configs(raw)
