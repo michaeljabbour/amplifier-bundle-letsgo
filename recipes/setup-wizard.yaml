@@ -158,12 +158,50 @@ stages:
         output: satellite_config
         timeout: 300
 
+      - id: configure-voice
+        agent: self
+        prompt: >
+          If voice was selected in {{satellite_config}}:
+
+          1. **Transcription provider setup:**
+             - Ask: OpenAI Whisper API (recommended, cloud) or local Whisper (free, needs GPU)?
+             - If Whisper API: collect API key, store via secrets tool as
+               "voice/whisper/api_key" (category: api_key)
+             - If local: verify `whisper` CLI is installed
+
+          2. **TTS setup (optional):**
+             - Ask: Enable text-to-speech responses? (default: no)
+             - If yes, ask provider: edge-tts (free, no key), ElevenLabs (high quality),
+               or OpenAI TTS
+             - If ElevenLabs: collect API key, store as "voice/elevenlabs/api_key"
+             - If OpenAI TTS: can reuse existing OpenAI key if available
+             - Choose voice (list top 3 options for selected provider)
+
+          3. **Update gateway config:**
+             - Add voice section to ~/.letsgo/gateway/config.yaml with the
+               chosen providers and settings
+             - Voice config schema:
+               voice:
+                 enabled: true
+                 transcription:
+                   provider: "whisper-api" or "local-whisper"
+                 tts:
+                   enabled: true/false
+                   provider: "edge-tts" / "elevenlabs" / "openai-tts"
+                   voice: "<chosen-voice>"
+
+          If voice was NOT selected, skip this step entirely and report "Voice: skipped".
+        output: voice_config
+        timeout: 300
+
     approval:
       required: true
       prompt: |
         Satellite setup:
 
         {{satellite_config}}
+
+        Voice configuration: {{voice_config}}
 
         Proceed to daemon startup?
 
