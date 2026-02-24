@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import json
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import pytest
-
 from letsgo_gateway.auth import PairingStore, generate_pairing_code
 from letsgo_gateway.models import AuthStatus, ChannelType
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -135,3 +130,61 @@ def test_persistence(tmp_path: Path):
     approved = store2.get_all_approved(ChannelType.SLACK)
     assert len(approved) == 1
     assert approved[0].sender_id == "persist"
+
+
+# ---------------------------------------------------------------------------
+# get_all_senders / unblock_sender
+# ---------------------------------------------------------------------------
+
+
+def test_get_all_senders_returns_every_status(tmp_path: Path):
+    """get_all_senders returns pending, approved, AND blocked senders."""
+    store = _make_store(tmp_path)
+
+    # Create one approved sender
+    code = store.request_pairing("a1", ChannelType.WEBHOOK, "ch", "A1")
+    store.verify_pairing("a1", ChannelType.WEBHOOK, code)
+
+    # Create one pending sender (request but don't verify)
+    store.request_pairing("a2", ChannelType.TELEGRAM, "ch", "A2")
+
+    # Create one blocked sender
+    code = store.request_pairing("a3", ChannelType.DISCORD, "ch", "A3")
+    store.verify_pairing("a3", ChannelType.DISCORD, code)
+    store.block_sender("a3", ChannelType.DISCORD)
+
+    all_senders = store.get_all_senders()
+    assert len(all_senders) == 3
+    statuses = {r.status for r in all_senders}
+    assert statuses == {AuthStatus.APPROVED, AuthStatus.PENDING, AuthStatus.BLOCKED}
+
+
+def test_get_all_senders_filtered_by_channel(tmp_path: Path):
+    """get_all_senders(channel=...) returns only senders on that channel."""
+    store = _make_store(tmp_path)
+
+    code = store.request_pairing("b1", ChannelType.WEBHOOK, "ch", "B1")
+    store.verify_pairing("b1", ChannelType.WEBHOOK, code)
+
+    code = store.request_pairing("b2", ChannelType.SLACK, "ch", "B2")
+    store.verify_pairing("b2", ChannelType.SLACK, code)
+
+    webhook_senders = store.get_all_senders(channel=ChannelType.WEBHOOK)
+    assert len(webhook_senders) == 1
+    assert webhook_senders[0].sender_id == "b1"
+
+
+def test_unblock_sender_restores_to_approved(tmp_path: Path):
+    """unblock_sender changes status from BLOCKED back to APPROVED."""
+    store = _make_store(tmp_path)
+
+    code = store.request_pairing("c1", ChannelType.WEBHOOK, "ch", "C1")
+    store.verify_pairing("c1", ChannelType.WEBHOOK, code)
+    store.block_sender("c1", ChannelType.WEBHOOK)
+
+    key = store._key("c1", ChannelType.WEBHOOK)
+    assert store._senders[key].status == AuthStatus.BLOCKED
+
+    store.unblock_sender("c1", ChannelType.WEBHOOK)
+    assert store._senders[key].status == AuthStatus.APPROVED
+    assert store.is_approved("c1", ChannelType.WEBHOOK)

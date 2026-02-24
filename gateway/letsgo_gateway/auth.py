@@ -27,12 +27,8 @@ class PairingStore:
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         config = config or {}
         default_path = Path("~/.letsgo/gateway/pairing.json").expanduser()
-        self._db_path = Path(
-            config.get("pairing_db_path", str(default_path))
-        )
-        self._max_messages_per_minute: int = config.get(
-            "max_messages_per_minute", 10
-        )
+        self._db_path = Path(config.get("pairing_db_path", str(default_path)))
+        self._max_messages_per_minute: int = config.get("max_messages_per_minute", 10)
         self._code_ttl_seconds: int = config.get("code_ttl_seconds", 300)
 
         # In-memory state
@@ -108,9 +104,7 @@ class PairingStore:
                 "approved_at": (
                     rec.approved_at.isoformat() if rec.approved_at else None
                 ),
-                "last_seen": (
-                    rec.last_seen.isoformat() if rec.last_seen else None
-                ),
+                "last_seen": (rec.last_seen.isoformat() if rec.last_seen else None),
                 "message_count": rec.message_count,
             }
 
@@ -123,9 +117,7 @@ class PairingStore:
                 "sender_label": pr.sender_label,
                 "code": pr.code,
                 "created_at": pr.created_at.isoformat(),
-                "expires_at": (
-                    pr.expires_at.isoformat() if pr.expires_at else None
-                ),
+                "expires_at": (pr.expires_at.isoformat() if pr.expires_at else None),
             }
 
         payload = json.dumps(
@@ -134,9 +126,7 @@ class PairingStore:
         )
 
         # Atomic write: temp file + rename
-        fd, tmp = tempfile.mkstemp(
-            dir=str(self._db_path.parent), suffix=".tmp"
-        )
+        fd, tmp = tempfile.mkstemp(dir=str(self._db_path.parent), suffix=".tmp")
         try:
             os.write(fd, payload.encode())
             os.close(fd)
@@ -184,9 +174,7 @@ class PairingStore:
         self._save()
         return code
 
-    def verify_pairing(
-        self, sender_id: str, channel: ChannelType, code: str
-    ) -> bool:
+    def verify_pairing(self, sender_id: str, channel: ChannelType, code: str) -> bool:
         """Validate a pairing code and promote sender to approved."""
         key = self._key(sender_id, channel)
         pr = self._pairing_requests.get(key)
@@ -291,3 +279,20 @@ class PairingStore:
         # Remove any pending pairing
         self._pairing_requests.pop(key, None)
         self._save()
+
+    def unblock_sender(self, sender_id: str, channel: ChannelType) -> None:
+        """Restore a blocked sender to approved status."""
+        key = self._key(sender_id, channel)
+        rec = self._senders.get(key)
+        if rec and rec.status == AuthStatus.BLOCKED:
+            rec.status = AuthStatus.APPROVED
+            self._save()
+
+    def get_all_senders(self, channel: ChannelType | None = None) -> list[SenderRecord]:
+        """List all senders regardless of status, optionally filtered by channel."""
+        results = []
+        for rec in self._senders.values():
+            if channel is not None and rec.channel != channel:
+                continue
+            results.append(rec)
+        return results
