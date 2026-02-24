@@ -1,0 +1,18 @@
+bundle:
+  name: behavior-voice-capabilities
+  version: 1.0.0
+  description: Voice transcription and TTS capabilities for LetsGo
+
+tools:
+  - module: tool-media-pipeline
+    source: ../modules/tool-media-pipeline
+    config:
+      transcription:
+        provider: "whisper-api"
+      tts:
+        provider: "edge-tts"
+        voice: "en-US-AriaNeural"
+
+context:
+  include:
+    - letsgo-voice:context/voice-awareness.md
