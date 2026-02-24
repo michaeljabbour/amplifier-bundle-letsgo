@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from amplifier_module_tool_media_pipeline import MediaPipelineTool, mount
 from amplifier_module_tool_media_pipeline.synthesize import (
     EdgeTTSProvider,
     ElevenLabsProvider,
@@ -329,3 +331,118 @@ class TestOpenAITTSProvider:
         call_args = mock_session.post.call_args
         assert "api.openai.com" in call_args[0][0]
         assert "speech" in call_args[0][0]
+
+
+# ===========================================================================
+# MediaPipelineTool Tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# MediaPipelineTool
+# ---------------------------------------------------------------------------
+
+
+class TestMediaPipelineTool:
+    """MediaPipelineTool exposes transcribe and synthesize actions."""
+
+    def _make_tool(self) -> MediaPipelineTool:
+        return MediaPipelineTool(config={})
+
+    def test_name(self) -> None:
+        tool = self._make_tool()
+        assert tool.name == "media_pipeline"
+
+    def test_description_not_empty(self) -> None:
+        tool = self._make_tool()
+        assert len(tool.description) > 20
+
+    def test_input_schema_has_action(self) -> None:
+        tool = self._make_tool()
+        schema = tool.input_schema
+        assert "action" in schema["properties"]
+        assert "transcribe" in schema["properties"]["action"]["enum"]
+        assert "synthesize" in schema["properties"]["action"]["enum"]
+
+    @pytest.mark.asyncio
+    async def test_execute_transcribe(self, tmp_path: Path) -> None:
+        audio = _make_audio_file(tmp_path)
+        tool = MediaPipelineTool(
+            config={"transcription": {"provider": "whisper-api", "api_key": "sk-test"}}
+        )
+
+        mock_response = MagicMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value={"text": "transcribed text"})
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = MagicMock()
+        mock_session.post = MagicMock(return_value=mock_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            result = await tool.execute(
+                {"action": "transcribe", "audio_path": str(audio)}
+            )
+
+        assert result.success is True
+        assert result.output["text"] == "transcribed text"
+
+    @pytest.mark.asyncio
+    async def test_execute_synthesize(self, tmp_path: Path) -> None:
+        output = tmp_path / "output.mp3"
+        tool = MediaPipelineTool(config={"tts": {"provider": "edge-tts"}})
+
+        mock_communicate = MagicMock()
+        mock_communicate.save = AsyncMock()
+
+        with patch(
+            "amplifier_module_tool_media_pipeline.synthesize.edge_tts.Communicate",
+            return_value=mock_communicate,
+        ):
+            result = await tool.execute(
+                {"action": "synthesize", "text": "hello", "output_path": str(output)}
+            )
+
+        assert result.success is True
+        assert result.output["audio_path"] == str(output)
+
+    @pytest.mark.asyncio
+    async def test_execute_unknown_action(self) -> None:
+        tool = self._make_tool()
+        result = await tool.execute({"action": "unknown"})
+        assert result.success is False
+        assert "Unknown action" in result.error["message"]
+
+    @pytest.mark.asyncio
+    async def test_execute_missing_action(self) -> None:
+        tool = self._make_tool()
+        result = await tool.execute({})
+        assert result.success is False
+
+
+# ---------------------------------------------------------------------------
+# Mount
+# ---------------------------------------------------------------------------
+
+
+class TestMount:
+    """mount() registers the tool and capability."""
+
+    @pytest.mark.asyncio
+    async def test_mount_registers_tool_and_capability(
+        self, mock_coordinator: Any
+    ) -> None:
+        await mount(mock_coordinator, config={})
+
+        # Check tool was mounted
+        assert len(mock_coordinator.mounts) == 1
+        m = mock_coordinator.mounts[0]
+        assert m["category"] == "tools"
+        assert m["name"] == "tool-media-pipeline"
+        assert isinstance(m["obj"], MediaPipelineTool)
+
+        # Check capability was registered
+        assert "media.pipeline" in mock_coordinator.capabilities
