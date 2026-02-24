@@ -194,6 +194,36 @@ stages:
         output: voice_config
         timeout: 300
 
+      - id: configure-canvas
+        agent: self
+        prompt: >
+          If canvas was selected in {{satellite_config}}:
+
+          1. **Canvas channel setup:**
+             - Ask: What port should the canvas web UI use? (default: 8080)
+             - Ask: Bind to localhost only or all interfaces? (default: localhost)
+             - Note: The canvas URL will be http://{host}:{port}/canvas
+
+          2. **Install canvas channel package:**
+             - Run: pip install letsgo-channel-canvas
+
+          3. **Update gateway config:**
+             - Add canvas channel to ~/.letsgo/gateway/config.yaml:
+               channels:
+                 - name: canvas
+                   type: canvas
+                   config:
+                     host: "<chosen-host>"
+                     port: <chosen-port>
+
+          4. **Verify:**
+             - Confirm the channel package is installed
+             - Report the canvas URL
+
+          If canvas was NOT selected, skip this step entirely and report "Canvas: skipped".
+        output: canvas_config
+        timeout: 180
+
     approval:
       required: true
       prompt: |
@@ -202,6 +232,8 @@ stages:
         {{satellite_config}}
 
         Voice configuration: {{voice_config}}
+
+        Canvas configuration: {{canvas_config}}
 
         Proceed to daemon startup?
 
