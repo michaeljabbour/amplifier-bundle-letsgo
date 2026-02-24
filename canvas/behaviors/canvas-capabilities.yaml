@@ -1,0 +1,13 @@
+bundle:
+  name: behavior-canvas-capabilities
+  version: 1.0.0
+  description: Canvas visual workspace capabilities for LetsGo
+
+tools:
+  - module: tool-canvas
+    source: ../modules/tool-canvas
+    config: {}
+
+context:
+  include:
+    - letsgo-canvas:context/canvas-awareness.md
