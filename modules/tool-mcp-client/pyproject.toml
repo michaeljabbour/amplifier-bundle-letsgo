@@ -1,0 +1,18 @@
+[project]
+name = "amplifier-module-tool-mcp-client"
+version = "0.1.0"
+description = "MCP client bridge tool for Amplifier — call tools on external MCP servers"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp>=3.9",
+]
+
+[project.entry-points."amplifier.modules"]
+tool-mcp-client = "amplifier_module_tool_mcp_client:mount"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["amplifier_module_tool_mcp_client"]
