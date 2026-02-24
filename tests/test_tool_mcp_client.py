@@ -157,3 +157,95 @@ class TestServerConfig:
         }
         with pytest.raises(ValueError, match="url"):
             load_server_configs(raw)
+
+
+import asyncio
+import json
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from amplifier_module_tool_mcp_client.transport import (
+    StdioTransport,
+    Transport,
+)
+
+
+# ---------------------------------------------------------------------------
+# Transport — ABC
+# ---------------------------------------------------------------------------
+
+
+class TestTransportABC:
+    """Transport abstract base class."""
+
+    def test_cannot_instantiate(self) -> None:
+        with pytest.raises(TypeError):
+            Transport()  # type: ignore[abstract]
+
+
+# ---------------------------------------------------------------------------
+# Transport — StdioTransport
+# ---------------------------------------------------------------------------
+
+
+class TestStdioTransport:
+    """StdioTransport spawns an MCP server as a subprocess."""
+
+    @pytest.mark.asyncio
+    async def test_connect_spawns_process(self) -> None:
+        transport = StdioTransport(command=["echo", "hello"])
+        mock_proc = MagicMock()
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdout = AsyncMock()
+        mock_proc.returncode = None
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc) as mock_exec:
+            await transport.connect()
+            mock_exec.assert_called_once()
+            assert transport.is_connected
+
+        # Cleanup
+        mock_proc.terminate = MagicMock()
+        mock_proc.wait = AsyncMock()
+        await transport.close()
+
+    @pytest.mark.asyncio
+    async def test_send_request_writes_and_reads(self) -> None:
+        transport = StdioTransport(command=["fake"])
+        mock_proc = MagicMock()
+
+        response_data = {"jsonrpc": "2.0", "id": 1, "result": {"tools": []}}
+        response_bytes = json.dumps(response_data).encode() + b"\n"
+
+        mock_proc.stdin = MagicMock()
+        mock_proc.stdin.write = MagicMock()
+        mock_proc.stdin.drain = AsyncMock()
+        mock_proc.stdout = AsyncMock()
+        mock_proc.stdout.readline = AsyncMock(return_value=response_bytes)
+        mock_proc.returncode = None
+
+        transport._process = mock_proc
+
+        result = await transport.send_request("tools/list", {})
+        assert result == {"tools": []}
+        mock_proc.stdin.write.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_close_terminates_process(self) -> None:
+        transport = StdioTransport(command=["fake"])
+        mock_proc = MagicMock()
+        mock_proc.terminate = MagicMock()
+        mock_proc.wait = AsyncMock()
+        mock_proc.returncode = None
+        transport._process = mock_proc
+
+        await transport.close()
+        mock_proc.terminate.assert_called_once()
+        assert not transport.is_connected
+
+    @pytest.mark.asyncio
+    async def test_command_not_found_raises(self) -> None:
+        transport = StdioTransport(
+            command=["__nonexistent_binary_8675309__"],
+        )
+        with pytest.raises(FileNotFoundError):
+            await transport.connect()
