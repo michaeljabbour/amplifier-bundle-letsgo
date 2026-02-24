@@ -270,6 +270,38 @@ stages:
         output: webchat_config
         timeout: 180
 
+      - id: configure-mcp
+        agent: self
+        prompt: >
+          If MCP was selected in {{satellite_config}}:
+
+          1. **Server configuration:**
+             - Ask: Do you have any MCP servers to configure? (default: no)
+             - If yes, for each server:
+               - Name (e.g., "filesystem", "github")
+               - Transport: stdio (local subprocess) or streamable-http (remote)
+               - For stdio: command to run (e.g., ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/tmp"])
+               - For HTTP: URL and optional auth headers
+             - Store any API keys/tokens via secrets tool as
+               "mcp/{server_name}/token" (category: api_key)
+
+          2. **Update gateway config:**
+             - Add mcp section to ~/.letsgo/gateway/config.yaml
+             - MCP config schema:
+               mcp:
+                 servers:
+                   <name>:
+                     transport: "stdio" or "streamable-http"
+                     command: [...] (stdio) or url: "..." (http)
+
+          3. **Test connectivity:**
+             - For each configured server, try mcp_call(action="list_tools", server="<name>")
+             - Report results
+
+          If MCP was NOT selected, skip this step and report "MCP: skipped".
+        output: mcp_config
+        timeout: 300
+
     approval:
       required: true
       prompt: |
@@ -284,6 +316,8 @@ stages:
         Browser configuration: {{browser_config}}
 
         WebChat configuration: {{webchat_config}}
+
+        MCP configuration: {{mcp_config}}
 
         Proceed to daemon startup?
 
