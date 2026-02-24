@@ -177,3 +177,88 @@ class TestVoiceMiddlewareInbound:
 
         # Should pass through unchanged
         assert result is msg
+
+
+# ---------------------------------------------------------------------------
+# VoiceMiddleware — outbound TTS
+# ---------------------------------------------------------------------------
+
+
+class TestVoiceMiddlewareOutbound:
+    """VoiceMiddleware.process_outbound handles TTS synthesis."""
+
+    @pytest.mark.asyncio
+    async def test_tts_creates_audio_file(self, tmp_path: Path) -> None:
+        msg = _make_message(text="original")
+        files_dir = tmp_path / "files"
+
+        mock_provider = AsyncMock()
+        mock_provider.synthesize = AsyncMock(return_value=None)
+
+        middleware = VoiceMiddleware(
+            config={"enabled": True, "tts": {"enabled": True, "provider": "edge-tts"}}
+        )
+
+        with patch.object(middleware, "_tts", mock_provider):
+            text, files = await middleware.process_outbound(
+                "Hello world", msg, files_dir
+            )
+
+        assert text == "Hello world"
+        assert len(files) == 1
+        assert files[0].name == "tts_response.mp3"
+        mock_provider.synthesize.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_tts_disabled_passthrough(self, tmp_path: Path) -> None:
+        msg = _make_message()
+        files_dir = tmp_path / "files"
+
+        middleware = VoiceMiddleware(
+            config={"enabled": True, "tts": {"enabled": False}}
+        )
+        text, files = await middleware.process_outbound("Hello world", msg, files_dir)
+
+        assert text == "Hello world"
+        assert files == []
+
+    @pytest.mark.asyncio
+    async def test_middleware_disabled_passthrough(self, tmp_path: Path) -> None:
+        msg = _make_message()
+        files_dir = tmp_path / "files"
+
+        middleware = VoiceMiddleware(config={"enabled": False})
+        text, files = await middleware.process_outbound("Hello world", msg, files_dir)
+
+        assert text == "Hello world"
+        assert files == []
+
+    @pytest.mark.asyncio
+    async def test_tts_error_graceful_degradation(self, tmp_path: Path) -> None:
+        msg = _make_message()
+        files_dir = tmp_path / "files"
+
+        mock_provider = AsyncMock()
+        mock_provider.synthesize = AsyncMock(side_effect=RuntimeError("API error"))
+
+        middleware = VoiceMiddleware(config={"enabled": True, "tts": {"enabled": True}})
+
+        with patch.object(middleware, "_tts", mock_provider):
+            text, files = await middleware.process_outbound(
+                "Hello world", msg, files_dir
+            )
+
+        # Should gracefully degrade — return text with no files
+        assert text == "Hello world"
+        assert files == []
+
+    @pytest.mark.asyncio
+    async def test_tts_no_tts_config_passthrough(self, tmp_path: Path) -> None:
+        msg = _make_message()
+        files_dir = tmp_path / "files"
+
+        middleware = VoiceMiddleware(config={"enabled": True})
+        text, files = await middleware.process_outbound("Hello world", msg, files_dir)
+
+        assert text == "Hello world"
+        assert files == []
