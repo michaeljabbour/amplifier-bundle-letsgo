@@ -322,3 +322,169 @@ class TestStreamableHTTPTransport:
         assert transport.is_connected
         await transport.close()
         assert not transport.is_connected
+
+
+from typing import Any
+
+from amplifier_module_tool_mcp_client import MCPClientTool, mount
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_tool(config: dict[str, Any] | None = None) -> MCPClientTool:
+    return MCPClientTool(config=config or {})
+
+
+def _make_tool_with_server() -> MCPClientTool:
+    """Tool with a configured stdio server."""
+    config = {
+        "mcp": {
+            "servers": {
+                "test-server": {
+                    "transport": "stdio",
+                    "command": ["echo", "hello"],
+                },
+            },
+        },
+    }
+    return MCPClientTool(config=config)
+
+
+# ---------------------------------------------------------------------------
+# MCPClientTool — protocol compliance
+# ---------------------------------------------------------------------------
+
+
+class TestMCPClientToolProtocol:
+    """MCPClientTool implements the Amplifier tool protocol."""
+
+    def test_name(self) -> None:
+        tool = _make_tool()
+        assert tool.name == "mcp_call"
+
+    def test_description_not_empty(self) -> None:
+        tool = _make_tool()
+        assert len(tool.description) > 20
+
+    def test_input_schema_has_server(self) -> None:
+        tool = _make_tool()
+        schema = tool.input_schema
+        assert "server" in schema["properties"]
+
+    def test_input_schema_has_tool(self) -> None:
+        tool = _make_tool()
+        schema = tool.input_schema
+        assert "tool" in schema["properties"]
+
+    def test_input_schema_has_action(self) -> None:
+        tool = _make_tool()
+        schema = tool.input_schema
+        assert "action" in schema["properties"]
+        assert set(schema["properties"]["action"]["enum"]) == {
+            "list_servers",
+            "list_tools",
+        }
+
+
+# ---------------------------------------------------------------------------
+# MCPClientTool — execute
+# ---------------------------------------------------------------------------
+
+
+class TestMCPClientToolExecute:
+    """MCPClientTool.execute dispatches correctly."""
+
+    @pytest.mark.asyncio
+    async def test_list_servers(self) -> None:
+        tool = _make_tool_with_server()
+        result = await tool.execute({"action": "list_servers"})
+        assert result.success is True
+        assert "test-server" in result.output["servers"]
+
+    @pytest.mark.asyncio
+    async def test_list_tools_mock_transport(self) -> None:
+        tool = _make_tool_with_server()
+
+        mock_transport = AsyncMock()
+        mock_transport.is_connected = True
+        mock_transport.send_request = AsyncMock(
+            return_value={"tools": [{"name": "read_file", "description": "Read a file"}]},
+        )
+        tool._connections["test-server"] = mock_transport
+
+        result = await tool.execute({"action": "list_tools", "server": "test-server"})
+        assert result.success is True
+        assert result.output["tools"][0]["name"] == "read_file"
+
+    @pytest.mark.asyncio
+    async def test_call_tool_mock_transport(self) -> None:
+        tool = _make_tool_with_server()
+
+        mock_transport = AsyncMock()
+        mock_transport.is_connected = True
+        mock_transport.send_request = AsyncMock(
+            side_effect=[
+                # initialize response
+                {"capabilities": {}, "serverInfo": {"name": "test"}},
+                # tools/call response
+                {"content": [{"type": "text", "text": "file contents"}]},
+            ],
+        )
+        tool._connections["test-server"] = mock_transport
+
+        result = await tool.execute({
+            "server": "test-server",
+            "tool": "read_file",
+            "arguments": {"path": "/tmp/foo"},
+        })
+        assert result.success is True
+        assert "file contents" in str(result.output)
+
+    @pytest.mark.asyncio
+    async def test_missing_server_returns_error(self) -> None:
+        tool = _make_tool_with_server()
+        result = await tool.execute({
+            "server": "nonexistent",
+            "tool": "read_file",
+            "arguments": {},
+        })
+        assert result.success is False
+        assert "not configured" in result.error["message"]
+
+    @pytest.mark.asyncio
+    async def test_missing_tool_param_returns_error(self) -> None:
+        tool = _make_tool_with_server()
+        result = await tool.execute({"server": "test-server"})
+        assert result.success is False
+        assert "tool" in result.error["message"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Mount
+# ---------------------------------------------------------------------------
+
+
+class TestMCPClientToolMount:
+    """mount() registers the tool and capability."""
+
+    @pytest.mark.asyncio
+    async def test_mount_registers_tool_and_capability(
+        self,
+        mock_coordinator: Any,
+    ) -> None:
+        await mount(mock_coordinator, config={})
+        names = [m["name"] for m in mock_coordinator.mounts]
+        assert "tool-mcp-client" in names
+        assert "mcp.client" in mock_coordinator.capabilities
+
+    @pytest.mark.asyncio
+    async def test_mount_stores_coordinator(
+        self,
+        mock_coordinator: Any,
+    ) -> None:
+        await mount(mock_coordinator, config={})
+        tool = mock_coordinator.mounts[0]["obj"]
+        assert tool._coordinator is mock_coordinator
