@@ -4,9 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LetsGo — Your AI Assistant, Everywhere</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
   :root {
     --accent: #FF2D55;
     --accent-glow: rgba(255, 45, 85, 0.35);
@@ -40,28 +41,51 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  /* ── Slide Container ── */
-  .deck { position: relative; width: 100%; height: 100vh; }
+  /* ── Deck Container ── */
+  .deck {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+  }
 
+  /* ── Slide Base ── */
   .slide {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column;
-    justify-content: center; align-items: center;
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
     padding: 60px 80px;
     opacity: 0;
-    transform: translateX(60px);
-    transition: opacity 0.5s cubic-bezier(0.4,0,0.2,1), transform 0.5s cubic-bezier(0.4,0,0.2,1);
     pointer-events: none;
+    transition: opacity 0.5s cubic-bezier(0.4,0,0.2,1),
+                transform 0.5s cubic-bezier(0.4,0,0.2,1);
     will-change: opacity, transform;
+    transform: translateX(60px);
+    z-index: 0;
   }
 
   .slide.active {
-    opacity: 1; transform: translateX(0);
+    opacity: 1;
     pointer-events: auto;
+    transform: translateX(0);
+    z-index: 2;
   }
 
   .slide.prev {
-    opacity: 0; transform: translateX(-60px);
+    transform: translateX(-60px);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .slide.next {
+    transform: translateX(60px);
+    opacity: 0;
+    pointer-events: none;
+    z-index: 1;
   }
 
   /* ── Typography ── */
@@ -590,9 +614,9 @@
 
 <div class="deck" id="deck">
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 1: TITLE                                -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-center active" data-slide="0">
     <div class="bg-glow" style="background: var(--accent); top: -200px; right: -200px;"></div>
     <div class="bg-glow" style="background: var(--purple); bottom: -300px; left: -200px;"></div>
@@ -613,9 +637,9 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 2: THE PROBLEM                          -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-center" data-slide="1">
     <div class="bg-glow" style="background: #FF453A; top: -100px; left: -200px;"></div>
     <span class="slide-number-label">The Problem</span>
@@ -623,27 +647,27 @@
     <p class="subtitle" style="margin-top: 16px; margin-bottom: 12px;">Every platform has different APIs, auth models, and wire formats.</p>
     <div class="pain-grid">
       <div class="pain-item">
-        <div class="icon">💬</div>
+        <div class="icon">&#x1F4AC;</div>
         <div class="label">13+ messaging<br>platforms</div>
       </div>
       <div class="pain-item">
-        <div class="icon">🎤</div>
+        <div class="icon">&#x1F3A4;</div>
         <div class="label">Voice transcription<br>&amp; TTS</div>
       </div>
       <div class="pain-item">
-        <div class="icon">🎨</div>
+        <div class="icon">&#x1F3A8;</div>
         <div class="label">Visual<br>workspaces</div>
       </div>
       <div class="pain-item">
-        <div class="icon">📊</div>
+        <div class="icon">&#x1F4CA;</div>
         <div class="label">Admin<br>dashboards</div>
       </div>
       <div class="pain-item">
-        <div class="icon">🔧</div>
+        <div class="icon">&#x1F527;</div>
         <div class="label">MCP tool<br>servers</div>
       </div>
       <div class="pain-item">
-        <div class="icon">📦</div>
+        <div class="icon">&#x1F4E6;</div>
         <div class="label">Skill<br>systems</div>
       </div>
     </div>
@@ -653,9 +677,9 @@
     </p>
   </div>
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 3: THE SOLUTION                         -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-center" data-slide="2">
     <div class="bg-glow" style="background: var(--green); top: -200px; right: -100px;"></div>
     <span class="slide-number-label">The Solution</span>
@@ -691,9 +715,9 @@
     </p>
   </div>
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 4: THE 6 BUNDLES                        -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-left" data-slide="3">
     <div class="bg-glow" style="background: var(--blue); bottom: -200px; right: -200px;"></div>
     <span class="slide-number-label">The Architecture</span>
@@ -734,9 +758,9 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 5: CHANNELS                             -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-left" data-slide="4">
     <div class="bg-glow" style="background: var(--orange); top: -200px; left: -100px;"></div>
     <span class="slide-number-label">Gateway</span>
@@ -772,9 +796,9 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 6: THREE-LAYER CANVAS                   -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-center" data-slide="5">
     <div class="bg-glow" style="background: var(--purple); top: -100px; left: 50%; transform: translateX(-50%);"></div>
     <span class="slide-number-label">Deep Dive</span>
@@ -815,9 +839,9 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 7: VOICE PIPELINE                       -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-center" data-slide="6">
     <div class="bg-glow" style="background: var(--teal); bottom: -200px; right: -100px;"></div>
     <span class="slide-number-label">Deep Dive</span>
@@ -826,32 +850,32 @@
 
     <div class="pipeline">
       <div class="pipeline-step">
-        <div class="step-icon">🎤</div>
+        <div class="step-icon">&#x1F3A4;</div>
         <div class="step-label">Audio<br>attachment</div>
       </div>
       <div class="pipeline-arrow">&#10132;</div>
       <div class="pipeline-step" style="border-color: var(--accent);">
-        <div class="step-icon">📝</div>
+        <div class="step-icon">&#x1F4DD;</div>
         <div class="step-label">Voice<br>Middleware</div>
       </div>
       <div class="pipeline-arrow">&#10132;</div>
       <div class="pipeline-step">
-        <div class="step-icon">💬</div>
+        <div class="step-icon">&#x1F4AC;</div>
         <div class="step-label">Text reaches<br>agent</div>
       </div>
       <div class="pipeline-arrow">&#10132;</div>
       <div class="pipeline-step">
-        <div class="step-icon">🤖</div>
+        <div class="step-icon">&#x1F916;</div>
         <div class="step-label">Agent<br>responds</div>
       </div>
       <div class="pipeline-arrow">&#10132;</div>
       <div class="pipeline-step" style="border-color: var(--accent);">
-        <div class="step-icon">🔊</div>
+        <div class="step-icon">&#x1F50A;</div>
         <div class="step-label">Optional<br>TTS</div>
       </div>
       <div class="pipeline-arrow">&#10132;</div>
       <div class="pipeline-step">
-        <div class="step-icon">📤</div>
+        <div class="step-icon">&#x1F4E4;</div>
         <div class="step-label">Audio<br>sent back</div>
       </div>
     </div>
@@ -866,9 +890,9 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 8: SKILL ECOSYSTEM                      -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-left" data-slide="7">
     <div class="bg-glow" style="background: var(--green); top: -200px; right: -100px;"></div>
     <span class="slide-number-label">Ecosystem</span>
@@ -878,7 +902,7 @@
     <div class="skills-layout">
       <div class="skill-category">
         <div class="skill-category-header">
-          <span class="cat-icon">📄</span>
+          <span class="cat-icon">&#x1F4C4;</span>
           <span class="cat-name">Document</span>
         </div>
         <div class="skill-list">
@@ -890,7 +914,7 @@
       </div>
       <div class="skill-category">
         <div class="skill-category-header">
-          <span class="cat-icon">🎨</span>
+          <span class="cat-icon">&#x1F3A8;</span>
           <span class="cat-name">Creative</span>
         </div>
         <div class="skill-list">
@@ -902,7 +926,7 @@
       </div>
       <div class="skill-category">
         <div class="skill-category-header">
-          <span class="cat-icon">🛠</span>
+          <span class="cat-icon">&#x1F6E0;</span>
           <span class="cat-name">Developer</span>
         </div>
         <div class="skill-list">
@@ -913,7 +937,7 @@
       </div>
       <div class="skill-category">
         <div class="skill-category-header">
-          <span class="cat-icon">📡</span>
+          <span class="cat-icon">&#x1F4E1;</span>
           <span class="cat-name">Communication</span>
         </div>
         <div class="skill-list">
@@ -925,7 +949,7 @@
       <div class="skills-bottom-row">
         <div class="skill-category">
           <div class="skill-category-header">
-            <span class="cat-icon">⚙️</span>
+            <span class="cat-icon">&#x2699;&#xFE0F;</span>
             <span class="cat-name">Operations</span>
           </div>
           <div class="skill-list">
@@ -936,7 +960,7 @@
         </div>
         <div class="skill-category" style="background: rgba(255,45,85,0.06); border-color: rgba(255,45,85,0.2);">
           <div class="skill-category-header">
-            <span class="cat-icon">🤖</span>
+            <span class="cat-icon">&#x1F916;</span>
             <span class="cat-name">Specialist Agents + Routing</span>
           </div>
           <div class="skill-list">
@@ -949,9 +973,9 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 9: BY THE NUMBERS                       -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-center" data-slide="8">
     <div class="bg-glow" style="background: var(--accent); top: 50%; left: 50%; transform: translate(-50%, -50%);"></div>
     <span class="slide-number-label">Impact</span>
@@ -993,9 +1017,9 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <!-- SLIDE 10: GETTING STARTED                     -->
-  <!-- ══════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════ -->
   <div class="slide content-center" data-slide="9">
     <div class="bg-glow" style="background: var(--accent); bottom: -200px; left: -100px;"></div>
     <div class="bg-glow" style="background: var(--purple); top: -200px; right: -200px;"></div>
@@ -1037,75 +1061,160 @@
 
 <script>
 (function() {
-  const slides = document.querySelectorAll('.slide');
-  const navDots = document.getElementById('navDots');
-  const counter = document.getElementById('slideCounter');
-  const total = slides.length;
-  let current = 0;
-  let transitioning = false;
+  'use strict';
+
+  var slides = document.querySelectorAll('.slide');
+  var navDots = document.getElementById('navDots');
+  var counter = document.getElementById('slideCounter');
+  var total = slides.length;
+  var currentSlide = 0;
+  var isTransitioning = false;
+
+  // Debug: verify slides found
+  console.log('[LetsGo Deck] Found ' + total + ' slides');
+  if (total === 0) {
+    console.error('[LetsGo Deck] ERROR: No slides found! Check .slide class.');
+    return;
+  }
+
+  // Initialize: ensure only slide 0 is active, all others hidden
+  for (var i = 0; i < total; i++) {
+    slides[i].classList.remove('active', 'prev', 'next');
+    if (i === 0) {
+      slides[i].classList.add('active');
+    }
+  }
 
   // Build nav dots
-  for (let i = 0; i < total; i++) {
-    const dot = document.createElement('button');
-    dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
-    dot.setAttribute('aria-label', 'Go to slide ' + (i + 1));
-    dot.addEventListener('click', () => goTo(i));
+  for (var d = 0; d < total; d++) {
+    var dot = document.createElement('button');
+    dot.className = 'nav-dot' + (d === 0 ? ' active' : '');
+    dot.setAttribute('aria-label', 'Go to slide ' + (d + 1));
+    (function(idx) {
+      dot.addEventListener('click', function(e) {
+        e.stopPropagation();
+        goTo(idx);
+      });
+    })(d);
     navDots.appendChild(dot);
   }
 
   function goTo(n) {
-    if (n === current || transitioning || n < 0 || n >= total) return;
-    transitioning = true;
+    if (n === currentSlide || isTransitioning || n < 0 || n >= total) return;
+    isTransitioning = true;
 
-    const dir = n > current ? 1 : -1;
-    slides[current].classList.remove('active');
-    slides[current].classList.add(dir > 0 ? 'prev' : '');
-    slides[current].style.transform = dir > 0 ? 'translateX(-60px)' : 'translateX(60px)';
+    var goingForward = n > currentSlide;
+    var oldSlide = slides[currentSlide];
+    var newSlide = slides[n];
 
-    slides[n].classList.remove('prev');
-    slides[n].style.transform = dir > 0 ? 'translateX(60px)' : 'translateX(-60px)';
+    // 1. Remove all state classes from old slide, apply exit direction
+    oldSlide.classList.remove('active', 'prev', 'next');
+    if (goingForward) {
+      oldSlide.classList.add('prev');   // exits to the left
+    } else {
+      oldSlide.classList.add('next');   // exits to the right
+    }
 
-    // Force reflow
-    void slides[n].offsetWidth;
+    // 2. Prepare new slide at entry position (no transition)
+    newSlide.classList.remove('active', 'prev', 'next');
+    newSlide.style.transition = 'none';
+    if (goingForward) {
+      newSlide.classList.add('next');   // starts from the right
+    } else {
+      newSlide.classList.add('prev');   // starts from the left
+    }
 
-    slides[n].classList.add('active');
-    slides[n].style.transform = '';
+    // 3. Force reflow so the position is applied before we animate
+    void newSlide.offsetWidth;
 
-    // Update dots
-    navDots.children[current].classList.remove('active');
-    navDots.children[n].classList.add('active');
+    // 4. Re-enable transition and make active
+    newSlide.style.transition = '';
+    newSlide.classList.remove('prev', 'next');
+    newSlide.classList.add('active');
 
-    current = n;
-    counter.textContent = (current + 1) + ' / ' + total;
+    // 5. Update nav dots
+    if (navDots.children[currentSlide]) {
+      navDots.children[currentSlide].classList.remove('active');
+    }
+    if (navDots.children[n]) {
+      navDots.children[n].classList.add('active');
+    }
 
-    setTimeout(() => { transitioning = false; }, 500);
+    // 6. Update state
+    currentSlide = n;
+    counter.textContent = (currentSlide + 1) + ' / ' + total;
+
+    // 7. Unlock after transition completes
+    setTimeout(function() {
+      isTransitioning = false;
+    }, 550);
   }
 
-  function next() { goTo(current + 1); }
-  function prev() { goTo(current - 1); }
+  function next() { goTo(currentSlide + 1); }
+  function prev() { goTo(currentSlide - 1); }
 
-  // Keyboard
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); next(); }
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prev(); }
-    if (e.key === 'Home') { e.preventDefault(); goTo(0); }
-    if (e.key === 'End') { e.preventDefault(); goTo(total - 1); }
+  // Keyboard navigation
+  document.addEventListener('keydown', function(e) {
+    switch(e.key) {
+      case 'ArrowRight':
+      case 'ArrowDown':
+      case ' ':
+      case 'PageDown':
+        e.preventDefault();
+        next();
+        break;
+      case 'ArrowLeft':
+      case 'ArrowUp':
+      case 'PageUp':
+        e.preventDefault();
+        prev();
+        break;
+      case 'Home':
+        e.preventDefault();
+        goTo(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        goTo(total - 1);
+        break;
+    }
   });
 
-  // Click zones
-  document.addEventListener('click', (e) => {
-    if (e.target.closest('.nav-dots') || e.target.closest('a') || e.target.closest('button')) return;
-    if (e.clientX > window.innerWidth * 0.5) next();
-    else prev();
+  // Click zones: left half = back, right half = forward
+  document.addEventListener('click', function(e) {
+    // Don't navigate when clicking interactive elements
+    if (e.target.closest('.nav-dots') || e.target.closest('a') || e.target.closest('button') || e.target.closest('pre') || e.target.closest('code')) {
+      return;
+    }
+    if (e.clientX > window.innerWidth * 0.5) {
+      next();
+    } else {
+      prev();
+    }
   });
 
-  // Touch swipe
-  let touchStartX = 0;
-  document.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].clientX; }, { passive: true });
-  document.addEventListener('touchend', (e) => {
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    if (Math.abs(dx) > 50) { dx < 0 ? next() : prev(); }
+  // Touch/swipe support
+  var touchStartX = 0;
+  var touchStartY = 0;
+  document.addEventListener('touchstart', function(e) {
+    touchStartX = e.changedTouches[0].clientX;
+    touchStartY = e.changedTouches[0].clientY;
   }, { passive: true });
+
+  document.addEventListener('touchend', function(e) {
+    var dx = e.changedTouches[0].clientX - touchStartX;
+    var dy = e.changedTouches[0].clientY - touchStartY;
+    // Only trigger if horizontal swipe is dominant and > 50px
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+      if (dx < 0) {
+        next();   // swipe left = forward
+      } else {
+        prev();   // swipe right = back
+      }
+    }
+  }, { passive: true });
+
+  console.log('[LetsGo Deck] Navigation initialized. ' + total + ' slides ready.');
 })();
 </script>
 
