@@ -249,3 +249,76 @@ class TestStdioTransport:
         )
         with pytest.raises(FileNotFoundError):
             await transport.connect()
+
+
+from amplifier_module_tool_mcp_client.transport import StreamableHTTPTransport
+
+
+# ---------------------------------------------------------------------------
+# Transport — StreamableHTTPTransport
+# ---------------------------------------------------------------------------
+
+
+class TestStreamableHTTPTransport:
+    """StreamableHTTPTransport posts JSON-RPC to an HTTP endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_send_request_posts_to_url(self) -> None:
+        transport = StreamableHTTPTransport(
+            url="https://api.example.com/mcp",
+        )
+        await transport.connect()
+
+        response_data = {"jsonrpc": "2.0", "id": 1, "result": {"tools": []}}
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(return_value=response_data)
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = AsyncMock()
+        mock_session.post = MagicMock(return_value=mock_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            result = await transport.send_request("tools/list", {})
+            assert result == {"tools": []}
+
+    @pytest.mark.asyncio
+    async def test_headers_included(self) -> None:
+        transport = StreamableHTTPTransport(
+            url="https://api.example.com/mcp",
+            headers={"Authorization": "Bearer tok123"},
+        )
+        await transport.connect()
+        assert transport._headers == {"Authorization": "Bearer tok123"}
+
+    @pytest.mark.asyncio
+    async def test_http_error_raises(self) -> None:
+        transport = StreamableHTTPTransport(url="https://api.example.com/mcp")
+        await transport.connect()
+
+        mock_response = AsyncMock()
+        mock_response.status = 500
+        mock_response.text = AsyncMock(return_value="Internal Server Error")
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=False)
+
+        mock_session = AsyncMock()
+        mock_session.post = MagicMock(return_value=mock_response)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            with pytest.raises(MCPError, match="HTTP 500"):
+                await transport.send_request("tools/list", {})
+
+    @pytest.mark.asyncio
+    async def test_is_connected_after_connect(self) -> None:
+        transport = StreamableHTTPTransport(url="https://api.example.com/mcp")
+        assert not transport.is_connected
+        await transport.connect()
+        assert transport.is_connected
+        await transport.close()
+        assert not transport.is_connected

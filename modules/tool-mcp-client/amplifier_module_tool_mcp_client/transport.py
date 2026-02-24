@@ -113,3 +113,65 @@ class StdioTransport(Transport):
     @property
     def is_connected(self) -> bool:
         return self._process is not None and self._process.returncode is None
+
+
+# ---------------------------------------------------------------------------
+# Streamable HTTP transport
+# ---------------------------------------------------------------------------
+
+
+class StreamableHTTPTransport(Transport):
+    """Transport that communicates with an MCP server via Streamable HTTP.
+
+    Each request is a POST of JSON-RPC 2.0 to the configured URL.
+    The response is parsed from the HTTP response body.
+    """
+
+    def __init__(
+        self,
+        url: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self._url = url
+        self._headers = headers or {}
+        self._connected = False
+
+    # -- Transport interface ------------------------------------------------
+
+    async def connect(self) -> None:
+        """Mark as connected.  HTTP is stateless — no persistent connection."""
+        self._connected = True
+        logger.info("StreamableHTTPTransport ready: %s", self._url)
+
+    async def send_request(self, method: str, params: dict[str, Any]) -> Any:
+        """POST a JSON-RPC request and parse the response."""
+        import aiohttp
+
+        request = build_request(method, params)
+        headers = {
+            "Content-Type": "application/json",
+            **self._headers,
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                self._url,
+                json=request,
+                headers=headers,
+            ) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    msg = f"HTTP {resp.status} from MCP server: {body[:200]}"
+                    raise MCPError(msg)
+
+                data = await resp.json()
+                return parse_response(data)
+
+    async def close(self) -> None:
+        """Mark as disconnected."""
+        self._connected = False
+        logger.info("StreamableHTTPTransport closed")
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
