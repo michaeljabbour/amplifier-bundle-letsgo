@@ -16,6 +16,7 @@ from .files import extract_send_files, handle_long_response, resolve_files_dir
 from .heartbeat import HeartbeatEngine
 from .models import ChannelType, InboundMessage, OutboundMessage
 from .router import SessionRouter
+from .voice import VoiceMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,14 @@ class GatewayDaemon:
         )
         self.channels: dict[str, ChannelAdapter] = {}
         self._running = False
+
+        # Voice middleware (optional)
+        voice_config = self._config.get("voice", {})
+        self.voice: VoiceMiddleware | None = (
+            VoiceMiddleware(voice_config)
+            if voice_config.get("enabled", False)
+            else None
+        )
 
         self._init_channels()
 
@@ -256,12 +265,24 @@ class GatewayDaemon:
                 " before sending another message."
             )
 
+        # 2b. Voice transcription (before routing to session)
+        if self.voice is not None:
+            message = await self.voice.process_inbound(message)
+
         # 3. Route to session (await — it's async)
         response = await self.router.route_message(message)
 
         # 4. Process file exchange on outbound
         response, send_files = extract_send_files(response)
         response, long_file = handle_long_response(response, self._files_dir)
+
+        # 4b. Voice TTS (optional — after session responds)
+        if self.voice is not None:
+            response, voice_files = await self.voice.process_outbound(
+                response, message, self._files_dir
+            )
+            send_files.extend(voice_files)
+
         if long_file:
             send_files.append(long_file)
 
