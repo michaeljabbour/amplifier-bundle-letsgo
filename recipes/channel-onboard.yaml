@@ -78,6 +78,47 @@ stages:
           - Microsoft App Password
           - Install: pip install letsgo-channel-teams[botbuilder]
 
+          **line**:
+          - Channel access token (from LINE Developers Console)
+          - Channel secret
+          - Install: pip install letsgo-channel-line[sdk]
+
+          **googlechat**:
+          - Service account JSON key file path
+          - Space name (e.g., spaces/AAAA...)
+          - Install: pip install letsgo-channel-googlechat[sdk]
+
+          **imessage**:
+          - Apple ID (macOS only)
+          - Requires: macOS with Messages.app configured
+          - Install: pip install letsgo-channel-imessage
+
+          **nostr**:
+          - Private key (hex or nsec format)
+          - Relay URLs (list of WebSocket URLs)
+          - Install: pip install letsgo-channel-nostr[sdk]
+
+          **irc**:
+          - Server hostname (e.g., irc.libera.chat)
+          - Port (default: 6697), Nick, Channel (e.g., #letsgo)
+          - Install: pip install letsgo-channel-irc[sdk]
+
+          **mattermost**:
+          - Server URL (e.g., https://mattermost.example.com)
+          - Personal access token or bot token
+          - Team ID
+          - Install: pip install letsgo-channel-mattermost[sdk]
+
+          **twitch**:
+          - OAuth token (oauth:...)
+          - Channel name to join
+          - Install: pip install letsgo-channel-twitch[sdk]
+
+          **feishu**:
+          - App ID (from Feishu Open Platform)
+          - App secret
+          - Install: pip install letsgo-channel-feishu[sdk]
+
           If channel_type is empty or unsupported, list all supported types and ask the user to choose.
           If the channel is a plugin channel, check if the package is installed. If not, install it.
           If channel_type is valid, list the required credentials for this channel type.
@@ -148,6 +189,14 @@ stages:
           - **Signal**: Send a test message to the registered number, verify receipt
           - **Matrix**: Join a test room, send a message, verify receipt
           - **Teams**: Send a test message via Bot Framework, verify receipt
+          - **LINE**: Send a test message via Messaging API, verify receipt
+          - **Google Chat**: Post a test message to the configured space, verify receipt
+          - **iMessage**: Send a test iMessage via Messages.app, verify receipt (macOS only)
+          - **Nostr**: Publish a test note to configured relays, verify receipt
+          - **IRC**: Join configured channel, send a test message, verify receipt
+          - **Mattermost**: Post a test message to configured team channel, verify receipt
+          - **Twitch**: Send a test chat message to configured channel, verify receipt
+          - **Feishu**: Send a test message via Feishu Open API, verify receipt
 
           Report: pairing status, test message sent/received, any issues.
         output: pairing_result

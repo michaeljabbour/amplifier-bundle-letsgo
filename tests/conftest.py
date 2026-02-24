@@ -32,6 +32,7 @@ _MODULE_DIRS = [
     _BUNDLE_ROOT / "modules" / "tool-memory-store",
     _BUNDLE_ROOT / "modules" / "tool-media-pipeline",
     _BUNDLE_ROOT / "modules" / "tool-canvas",
+    _BUNDLE_ROOT / "modules" / "tool-mcp-client",
     # Gateway package lives under gateway/
     _BUNDLE_ROOT / "gateway",
 ]

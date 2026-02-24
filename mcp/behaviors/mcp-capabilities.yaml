@@ -1,0 +1,13 @@
+bundle:
+  name: behavior-mcp-capabilities
+  version: 1.0.0
+  description: MCP client tool and awareness context
+
+tools:
+  - module: tool-mcp-client
+    source: ../modules/tool-mcp-client
+    config: {}
+
+context:
+  include:
+    - "@letsgo-mcp:context/mcp-awareness.md"
