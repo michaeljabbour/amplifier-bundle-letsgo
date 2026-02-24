@@ -1,0 +1,8 @@
+bundle:
+  name: behavior-skills
+  version: 1.0.0
+  description: Skills discovery, domain awareness, and specialist agent routing for 20 expertise packages
+
+context:
+  include:
+    - letsgo:context/skills-awareness.md
