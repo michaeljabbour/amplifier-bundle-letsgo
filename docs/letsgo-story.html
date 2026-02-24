@@ -1,0 +1,1113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LetsGo — Your AI Assistant, Everywhere</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --accent: #FF2D55;
+    --accent-glow: rgba(255, 45, 85, 0.35);
+    --bg: #000000;
+    --surface: #111111;
+    --surface-2: #1A1A1A;
+    --surface-3: #222222;
+    --text: #FFFFFF;
+    --text-secondary: rgba(255,255,255,0.55);
+    --text-tertiary: rgba(255,255,255,0.35);
+    --code-bg: rgba(255,255,255,0.06);
+    --green: #30D158;
+    --blue: #0A84FF;
+    --purple: #BF5AF2;
+    --orange: #FF9F0A;
+    --teal: #64D2FF;
+    --yellow: #FFD60A;
+    --pink: #FF2D55;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    cursor: default;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Slide Container ── */
+  .deck { position: relative; width: 100%; height: 100vh; }
+
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    padding: 60px 80px;
+    opacity: 0;
+    transform: translateX(60px);
+    transition: opacity 0.5s cubic-bezier(0.4,0,0.2,1), transform 0.5s cubic-bezier(0.4,0,0.2,1);
+    pointer-events: none;
+    will-change: opacity, transform;
+  }
+
+  .slide.active {
+    opacity: 1; transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .slide.prev {
+    opacity: 0; transform: translateX(-60px);
+  }
+
+  /* ── Typography ── */
+  .slide-number-label {
+    position: absolute; top: 40px; left: 80px;
+    font-size: 13px; font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    font-size: clamp(42px, 5.5vw, 72px);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    max-width: 900px;
+    text-align: center;
+  }
+
+  h2 {
+    font-size: clamp(32px, 4vw, 56px);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.025em;
+    max-width: 850px;
+  }
+
+  h3 {
+    font-size: clamp(18px, 2vw, 24px);
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+
+  .subtitle {
+    font-size: clamp(16px, 1.8vw, 22px);
+    color: var(--text-secondary);
+    font-weight: 400;
+    line-height: 1.5;
+    max-width: 700px;
+    text-align: center;
+    margin-top: 20px;
+  }
+
+  .kicker {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: var(--accent);
+    margin-bottom: 16px;
+  }
+
+  /* ── Content Layouts ── */
+  .content-left {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .content-center {
+    align-items: center;
+    text-align: center;
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    width: 100%;
+    max-width: 1100px;
+    margin-top: 32px;
+  }
+
+  .three-col {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    width: 100%;
+    max-width: 1100px;
+    margin-top: 32px;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    padding: 28px;
+    transition: border-color 0.3s;
+  }
+
+  .card:hover {
+    border-color: rgba(255,255,255,0.12);
+  }
+
+  .card-icon {
+    font-size: 28px;
+    margin-bottom: 14px;
+    display: block;
+  }
+
+  .card h3 {
+    font-size: 17px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+
+  .card p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.55;
+  }
+
+  .card-accent {
+    width: 4px;
+    height: 24px;
+    border-radius: 2px;
+    margin-bottom: 16px;
+    display: block;
+  }
+
+  /* ── Code Blocks ── */
+  pre {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 24px 28px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    line-height: 1.7;
+    overflow-x: auto;
+    max-width: 720px;
+    width: 100%;
+    color: rgba(255,255,255,0.85);
+  }
+
+  pre .comment { color: var(--text-tertiary); }
+  pre .key { color: var(--teal); }
+  pre .string { color: var(--green); }
+  pre .accent { color: var(--accent); }
+  pre .keyword { color: var(--purple); }
+  pre .arrow { color: var(--text-secondary); }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--code-bg);
+    padding: 2px 8px;
+    border-radius: 5px;
+    font-size: 0.88em;
+  }
+
+  /* ── Pain Points ── */
+  .pain-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    max-width: 900px;
+    width: 100%;
+    margin-top: 36px;
+  }
+
+  .pain-item {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 20px 22px;
+    text-align: center;
+  }
+
+  .pain-item .icon { font-size: 24px; margin-bottom: 10px; }
+  .pain-item .label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    line-height: 1.4;
+  }
+
+  /* ── Layer Diagram ── */
+  .layer-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    max-width: 700px;
+    margin-top: 24px;
+  }
+
+  .layer {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 20px 28px;
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .layer-num {
+    font-size: 28px;
+    font-weight: 800;
+    min-width: 36px;
+  }
+
+  .layer-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .layer-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+  }
+
+  /* ── Pipeline ── */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    max-width: 1000px;
+    width: 100%;
+    margin-top: 32px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .pipeline-step {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 14px 18px;
+    text-align: center;
+    min-width: 120px;
+    flex-shrink: 0;
+  }
+
+  .pipeline-step .step-icon { font-size: 20px; margin-bottom: 6px; }
+  .pipeline-step .step-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    line-height: 1.3;
+  }
+
+  .pipeline-arrow {
+    font-size: 18px;
+    color: var(--accent);
+    padding: 0 6px;
+    flex-shrink: 0;
+  }
+
+  /* ── Channels Grid ── */
+  .channels-section { margin-top: 20px; width: 100%; max-width: 1000px; }
+
+  .channels-section h3 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 12px;
+  }
+
+  .channel-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 24px;
+  }
+
+  .channel-tag {
+    background: var(--surface-2);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .channel-tag.builtin { border-color: rgba(255,45,85,0.3); color: var(--text); }
+  .channel-tag .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    display: inline-block;
+  }
+
+  .channel-tag.builtin .dot { background: var(--accent); }
+  .channel-tag .dot { background: var(--text-tertiary); }
+
+  .discovery-box {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 16px 22px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 8px;
+  }
+
+  .discovery-box code {
+    font-size: 14px;
+    color: var(--green);
+    background: none;
+    padding: 0;
+  }
+
+  .discovery-box .label {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  /* ── Metrics ── */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    max-width: 1000px;
+    width: 100%;
+    margin-top: 36px;
+  }
+
+  .metric {
+    text-align: center;
+    padding: 24px 16px;
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+  }
+
+  .metric-value {
+    font-size: clamp(32px, 4vw, 48px);
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, var(--accent), #FF6B8A);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.1;
+  }
+
+  .metric-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+
+  /* ── Skills ── */
+  .skills-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    max-width: 1000px;
+    width: 100%;
+    margin-top: 24px;
+  }
+
+  .skill-category {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 18px 22px;
+  }
+
+  .skill-category-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .skill-category-header .cat-icon { font-size: 16px; }
+  .skill-category-header .cat-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .skill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .skill-pill {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .skills-bottom-row {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 16px;
+  }
+
+  .skills-bottom-row .skill-category { flex: 1; }
+
+  /* ── Bundle Diagram ── */
+  .bundle-diagram {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    max-width: 800px;
+    width: 100%;
+    margin-top: 24px;
+  }
+
+  .bundle-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .bundle-box {
+    background: var(--surface);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 14px 20px;
+    text-align: center;
+    min-width: 140px;
+  }
+
+  .bundle-box.core {
+    border-color: var(--accent);
+    background: rgba(255,45,85,0.08);
+  }
+
+  .bundle-box .b-name {
+    font-size: 14px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .bundle-box .b-desc {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+  }
+
+  .bundle-connector {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  /* ── Navigation ── */
+  .nav-dots {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 10px;
+    z-index: 100;
+  }
+
+  .nav-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    cursor: pointer;
+    transition: all 0.3s;
+    border: none;
+    padding: 0;
+  }
+
+  .nav-dot.active {
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent-glow);
+    width: 24px;
+    border-radius: 4px;
+  }
+
+  .slide-counter {
+    position: fixed;
+    bottom: 34px;
+    right: 48px;
+    font-size: 13px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    z-index: 100;
+  }
+
+  /* ── Animated Background ── */
+  .bg-glow {
+    position: absolute;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.08;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .slide > * { position: relative; z-index: 1; }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .slide { padding: 40px 32px; }
+    .pain-grid, .three-col { grid-template-columns: repeat(2, 1fr); }
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: 1fr; }
+    .skills-layout { grid-template-columns: 1fr; }
+    .pipeline { gap: 4px; }
+    .skills-bottom-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="deck" id="deck">
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 1: TITLE                                -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-center active" data-slide="0">
+    <div class="bg-glow" style="background: var(--accent); top: -200px; right: -200px;"></div>
+    <div class="bg-glow" style="background: var(--purple); bottom: -300px; left: -200px;"></div>
+    <div class="kicker">Amplifier Bundle Family</div>
+    <h1>LetsGo</h1>
+    <p class="subtitle" style="font-size: clamp(20px, 2.5vw, 30px); color: var(--text-secondary); margin-top: 12px; font-weight: 300;">
+      Your AI Assistant, Everywhere
+    </p>
+    <p class="subtitle" style="margin-top: 24px; font-size: 16px; max-width: 560px;">
+      A multi-channel AI assistant platform built on<br>Amplifier's bundle composition system
+    </p>
+    <div style="margin-top: 48px; display: flex; gap: 24px; align-items: center;">
+      <span style="font-size: 13px; color: var(--text-tertiary); font-weight: 500; letter-spacing: 1px;">6 BUNDLES</span>
+      <span style="color: var(--text-tertiary);">&middot;</span>
+      <span style="font-size: 13px; color: var(--text-tertiary); font-weight: 500; letter-spacing: 1px;">13 CHANNELS</span>
+      <span style="color: var(--text-tertiary);">&middot;</span>
+      <span style="font-size: 13px; color: var(--text-tertiary); font-weight: 500; letter-spacing: 1px;">21 SKILLS</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 2: THE PROBLEM                          -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-center" data-slide="1">
+    <div class="bg-glow" style="background: #FF453A; top: -100px; left: -200px;"></div>
+    <span class="slide-number-label">The Problem</span>
+    <h2 style="text-align: center; max-width: 700px;">Building a multi-channel<br>AI assistant is <span style="color: var(--accent);">hard</span></h2>
+    <p class="subtitle" style="margin-top: 16px; margin-bottom: 12px;">Every platform has different APIs, auth models, and wire formats.</p>
+    <div class="pain-grid">
+      <div class="pain-item">
+        <div class="icon">💬</div>
+        <div class="label">13+ messaging<br>platforms</div>
+      </div>
+      <div class="pain-item">
+        <div class="icon">🎤</div>
+        <div class="label">Voice transcription<br>&amp; TTS</div>
+      </div>
+      <div class="pain-item">
+        <div class="icon">🎨</div>
+        <div class="label">Visual<br>workspaces</div>
+      </div>
+      <div class="pain-item">
+        <div class="icon">📊</div>
+        <div class="label">Admin<br>dashboards</div>
+      </div>
+      <div class="pain-item">
+        <div class="icon">🔧</div>
+        <div class="label">MCP tool<br>servers</div>
+      </div>
+      <div class="pain-item">
+        <div class="icon">📦</div>
+        <div class="label">Skill<br>systems</div>
+      </div>
+    </div>
+    <p style="margin-top: 28px; font-size: 16px; color: var(--text-secondary); text-align: center; max-width: 520px; line-height: 1.5;">
+      Most teams build <strong style="color: var(--text);">monoliths</strong> that become unmaintainable.<br>
+      <span style="color: var(--text-tertiary);">There has to be a better way.</span>
+    </p>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 3: THE SOLUTION                         -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-center" data-slide="2">
+    <div class="bg-glow" style="background: var(--green); top: -200px; right: -100px;"></div>
+    <span class="slide-number-label">The Solution</span>
+    <h2 style="text-align: center; max-width: 750px;">Not a monolith.<br>A <span style="color: var(--accent);">bundle family</span>.</h2>
+    <p class="subtitle" style="margin-bottom: 0;">6 composable satellite bundles. Pick only what you need.</p>
+
+    <div class="bundle-diagram">
+      <div class="bundle-row">
+        <div class="bundle-box core">
+          <div class="b-name">letsgo</div>
+          <div class="b-desc">Core &middot; Required</div>
+        </div>
+      </div>
+      <div class="bundle-connector">&#9589; peer composition &#9589;</div>
+      <div class="bundle-row">
+        <div class="bundle-box"><div class="b-name">voice</div><div class="b-desc">Audio I/O</div></div>
+        <div class="bundle-box"><div class="b-name">canvas</div><div class="b-desc">Visual workspace</div></div>
+        <div class="bundle-box"><div class="b-name">browser</div><div class="b-desc">Web automation</div></div>
+        <div class="bundle-box"><div class="b-name">webchat</div><div class="b-desc">Chat UI + admin</div></div>
+        <div class="bundle-box"><div class="b-name">mcp</div><div class="b-desc">Tool bridge</div></div>
+      </div>
+    </div>
+
+    <pre style="margin-top: 28px; max-width: 560px; font-size: 13px;"><span class="comment"># Your bundle — you choose the pieces</span>
+<span class="key">includes</span>:
+  - <span class="string">amplifier-bundle-letsgo</span>          <span class="comment"># Core</span>
+  - <span class="string">amplifier-bundle-letsgo-voice</span>    <span class="comment"># Optional</span>
+  - <span class="string">amplifier-bundle-letsgo-canvas</span>   <span class="comment"># Optional</span>
+  - <span class="string">amplifier-bundle-letsgo-webchat</span>  <span class="comment"># Optional</span></pre>
+
+    <p style="margin-top: 16px; font-size: 13px; color: var(--text-tertiary);">
+      Satellites don't include core. Your root bundle is the integration point.
+    </p>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 4: THE 6 BUNDLES                        -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-left" data-slide="3">
+    <div class="bg-glow" style="background: var(--blue); bottom: -200px; right: -200px;"></div>
+    <span class="slide-number-label">The Architecture</span>
+    <h2>Six satellite bundles</h2>
+    <p class="subtitle" style="text-align: left; margin-top: 8px; margin-bottom: 0; max-width: 500px;">Each bundle owns one concern. No overlap, no bloat.</p>
+
+    <div class="three-col" style="margin-top: 28px;">
+      <div class="card">
+        <span class="card-accent" style="background: var(--accent);"></span>
+        <h3>Core</h3>
+        <p>Gateway daemon, security, secrets management, memory, telemetry, onboarding wizard</p>
+      </div>
+      <div class="card">
+        <span class="card-accent" style="background: var(--teal);"></span>
+        <h3>Voice</h3>
+        <p>Auto-transcribe audio, optional TTS. Whisper API, local Whisper, edge-tts, ElevenLabs, OpenAI</p>
+      </div>
+      <div class="card">
+        <span class="card-accent" style="background: var(--purple);"></span>
+        <h3>Canvas</h3>
+        <p>Agent-driven visual workspace. Vega-Lite charts, HTML, SVG, markdown, code, tables</p>
+      </div>
+      <div class="card">
+        <span class="card-accent" style="background: var(--green);"></span>
+        <h3>Browser</h3>
+        <p>Web automation via browser-tester. Operator, researcher, visual-documenter agents</p>
+      </div>
+      <div class="card">
+        <span class="card-accent" style="background: var(--orange);"></span>
+        <h3>WebChat</h3>
+        <p>Chat UI + 6-tab admin dashboard. Sessions, channels, senders, cron, usage, agents</p>
+      </div>
+      <div class="card">
+        <span class="card-accent" style="background: var(--yellow);"></span>
+        <h3>MCP</h3>
+        <p>Bridge to external MCP tool servers. Single mcp_call tool with server/tool routing</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 5: CHANNELS                             -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-left" data-slide="4">
+    <div class="bg-glow" style="background: var(--orange); top: -200px; left: -100px;"></div>
+    <span class="slide-number-label">Gateway</span>
+    <h2>13 channel adapters</h2>
+    <p class="subtitle" style="text-align: left; margin-top: 8px; max-width: 600px;">Plugin system with Python entry-point discovery. Install and go.</p>
+
+    <div class="channels-section">
+      <h3 style="color: var(--accent);">Built-in</h3>
+      <div class="channel-tags">
+        <span class="channel-tag builtin"><span class="dot"></span>Webhook</span>
+        <span class="channel-tag builtin"><span class="dot"></span>Discord</span>
+        <span class="channel-tag builtin"><span class="dot"></span>Telegram</span>
+        <span class="channel-tag builtin"><span class="dot"></span>Slack</span>
+        <span class="channel-tag builtin"><span class="dot"></span>WhatsApp</span>
+      </div>
+
+      <h3 style="color: var(--text-secondary);">Plugin channels</h3>
+      <div class="channel-tags">
+        <span class="channel-tag"><span class="dot"></span>Signal</span>
+        <span class="channel-tag"><span class="dot"></span>Matrix</span>
+        <span class="channel-tag"><span class="dot"></span>Teams</span>
+        <span class="channel-tag"><span class="dot"></span>LINE</span>
+        <span class="channel-tag"><span class="dot"></span>Google Chat</span>
+        <span class="channel-tag"><span class="dot"></span>iMessage</span>
+        <span class="channel-tag"><span class="dot"></span>Nostr</span>
+        <span class="channel-tag"><span class="dot"></span>IRC</span>
+      </div>
+
+      <div class="discovery-box">
+        <code>pip install letsgo-channel-signal</code>
+        <span class="label">&rarr;&ensp;Auto-discovered via entry points. No core changes needed.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 6: THREE-LAYER CANVAS                   -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-center" data-slide="5">
+    <div class="bg-glow" style="background: var(--purple); top: -100px; left: 50%; transform: translateX(-50%);"></div>
+    <span class="slide-number-label">Deep Dive</span>
+    <h2 style="text-align: center;">The three-layer canvas</h2>
+    <p class="subtitle" style="margin-bottom: 0;">Clean separation: agents push content, the system routes it, the UI renders it.</p>
+
+    <div class="layer-stack">
+      <div class="layer">
+        <span class="layer-num" style="color: var(--accent);">1</span>
+        <div>
+          <div class="layer-name">tool-canvas <span style="font-weight: 400; font-size: 13px; color: var(--text-tertiary);">&mdash; Amplifier tool</span></div>
+          <div class="layer-desc">Agent calls canvas_push(). Knows nothing about WebSockets.</div>
+        </div>
+      </div>
+      <div class="layer">
+        <span class="layer-num" style="color: var(--purple);">2</span>
+        <div>
+          <div class="layer-name">DisplaySystem <span style="font-weight: 400; font-size: 13px; color: var(--text-tertiary);">&mdash; Protocol boundary</span></div>
+          <div class="layer-desc">Routes to canvas or chat fallback. Zero changes needed for new content types.</div>
+        </div>
+      </div>
+      <div class="layer">
+        <span class="layer-num" style="color: var(--teal);">3</span>
+        <div>
+          <div class="layer-name">CanvasChannel <span style="font-weight: 400; font-size: 13px; color: var(--text-tertiary);">&mdash; Gateway plugin</span></div>
+          <div class="layer-desc">WebSocket server, multi-panel web UI, state recovery on reconnect.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; justify-content: center;">
+      <span class="channel-tag builtin" style="font-size: 12px; padding: 6px 12px;">Vega-Lite Charts</span>
+      <span class="channel-tag builtin" style="font-size: 12px; padding: 6px 12px;">HTML (sandboxed)</span>
+      <span class="channel-tag builtin" style="font-size: 12px; padding: 6px 12px;">SVG</span>
+      <span class="channel-tag builtin" style="font-size: 12px; padding: 6px 12px;">Markdown</span>
+      <span class="channel-tag builtin" style="font-size: 12px; padding: 6px 12px;">Code (highlighted)</span>
+      <span class="channel-tag builtin" style="font-size: 12px; padding: 6px 12px;">Tables</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 7: VOICE PIPELINE                       -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-center" data-slide="6">
+    <div class="bg-glow" style="background: var(--teal); bottom: -200px; right: -100px;"></div>
+    <span class="slide-number-label">Deep Dive</span>
+    <h2 style="text-align: center;">Voice as gateway middleware</h2>
+    <p class="subtitle" style="margin-bottom: 8px;">Transcription happens <em>before</em> the Amplifier session.<br>It's gateway-level, not a hook.</p>
+
+    <div class="pipeline">
+      <div class="pipeline-step">
+        <div class="step-icon">🎤</div>
+        <div class="step-label">Audio<br>attachment</div>
+      </div>
+      <div class="pipeline-arrow">&#10132;</div>
+      <div class="pipeline-step" style="border-color: var(--accent);">
+        <div class="step-icon">📝</div>
+        <div class="step-label">Voice<br>Middleware</div>
+      </div>
+      <div class="pipeline-arrow">&#10132;</div>
+      <div class="pipeline-step">
+        <div class="step-icon">💬</div>
+        <div class="step-label">Text reaches<br>agent</div>
+      </div>
+      <div class="pipeline-arrow">&#10132;</div>
+      <div class="pipeline-step">
+        <div class="step-icon">🤖</div>
+        <div class="step-label">Agent<br>responds</div>
+      </div>
+      <div class="pipeline-arrow">&#10132;</div>
+      <div class="pipeline-step" style="border-color: var(--accent);">
+        <div class="step-icon">🔊</div>
+        <div class="step-label">Optional<br>TTS</div>
+      </div>
+      <div class="pipeline-arrow">&#10132;</div>
+      <div class="pipeline-step">
+        <div class="step-icon">📤</div>
+        <div class="step-label">Audio<br>sent back</div>
+      </div>
+    </div>
+
+    <p style="margin-top: 32px; font-size: 14px; color: var(--text-secondary); text-align: center;">Provider abstraction</p>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; justify-content: center;">
+      <span class="channel-tag" style="font-size: 12px; padding: 6px 12px;"><span class="dot" style="background: var(--blue);"></span>Whisper API</span>
+      <span class="channel-tag" style="font-size: 12px; padding: 6px 12px;"><span class="dot" style="background: var(--green);"></span>Local Whisper</span>
+      <span class="channel-tag" style="font-size: 12px; padding: 6px 12px;"><span class="dot" style="background: var(--orange);"></span>edge-tts (free)</span>
+      <span class="channel-tag" style="font-size: 12px; padding: 6px 12px;"><span class="dot" style="background: var(--purple);"></span>ElevenLabs</span>
+      <span class="channel-tag" style="font-size: 12px; padding: 6px 12px;"><span class="dot" style="background: var(--teal);"></span>OpenAI TTS</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 8: SKILL ECOSYSTEM                      -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-left" data-slide="7">
+    <div class="bg-glow" style="background: var(--green); top: -200px; right: -100px;"></div>
+    <span class="slide-number-label">Ecosystem</span>
+    <h2>21 skills, 5 categories</h2>
+    <p class="subtitle" style="text-align: left; margin-top: 8px; max-width: 650px;">Plus 2 specialist agents, skill routing behavior, and an OpenClaw migration tool.</p>
+
+    <div class="skills-layout">
+      <div class="skill-category">
+        <div class="skill-category-header">
+          <span class="cat-icon">📄</span>
+          <span class="cat-name">Document</span>
+        </div>
+        <div class="skill-list">
+          <span class="skill-pill">docx</span>
+          <span class="skill-pill">pdf</span>
+          <span class="skill-pill">pptx</span>
+          <span class="skill-pill">xlsx</span>
+        </div>
+      </div>
+      <div class="skill-category">
+        <div class="skill-category-header">
+          <span class="cat-icon">🎨</span>
+          <span class="cat-name">Creative</span>
+        </div>
+        <div class="skill-list">
+          <span class="skill-pill">algorithmic-art</span>
+          <span class="skill-pill">frontend-design</span>
+          <span class="skill-pill">storytelling</span>
+          <span class="skill-pill">data-viz</span>
+        </div>
+      </div>
+      <div class="skill-category">
+        <div class="skill-category-header">
+          <span class="cat-icon">🛠</span>
+          <span class="cat-name">Developer</span>
+        </div>
+        <div class="skill-list">
+          <span class="skill-pill">mcp-builder</span>
+          <span class="skill-pill">web-artifacts</span>
+          <span class="skill-pill">code-review</span>
+        </div>
+      </div>
+      <div class="skill-category">
+        <div class="skill-category-header">
+          <span class="cat-icon">📡</span>
+          <span class="cat-name">Communication</span>
+        </div>
+        <div class="skill-list">
+          <span class="skill-pill">doc-coauthoring</span>
+          <span class="skill-pill">internal-comms</span>
+          <span class="skill-pill">presentations</span>
+        </div>
+      </div>
+      <div class="skills-bottom-row">
+        <div class="skill-category">
+          <div class="skill-category-header">
+            <span class="cat-icon">⚙️</span>
+            <span class="cat-name">Operations</span>
+          </div>
+          <div class="skill-list">
+            <span class="skill-pill">schedule</span>
+            <span class="skill-pill">send-user-message</span>
+            <span class="skill-pill">system-admin</span>
+          </div>
+        </div>
+        <div class="skill-category" style="background: rgba(255,45,85,0.06); border-color: rgba(255,45,85,0.2);">
+          <div class="skill-category-header">
+            <span class="cat-icon">🤖</span>
+            <span class="cat-name">Specialist Agents + Routing</span>
+          </div>
+          <div class="skill-list">
+            <span class="skill-pill" style="color: var(--accent);">creative-agent</span>
+            <span class="skill-pill" style="color: var(--accent);">document-agent</span>
+            <span class="skill-pill" style="color: var(--accent);">skill-router</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 9: BY THE NUMBERS                       -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-center" data-slide="8">
+    <div class="bg-glow" style="background: var(--accent); top: 50%; left: 50%; transform: translate(-50%, -50%);"></div>
+    <span class="slide-number-label">Impact</span>
+    <h2 style="text-align: center;">By the numbers</h2>
+
+    <div class="metrics-grid">
+      <div class="metric">
+        <div class="metric-value">7</div>
+        <div class="metric-label">Phases &amp; PRs<br><span style="color: var(--text-tertiary);">each shippable</span></div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">500+</div>
+        <div class="metric-label">Tests<br><span style="color: var(--text-tertiary);">461 + 111 adapter</span></div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">6</div>
+        <div class="metric-label">Satellite<br><span style="color: var(--text-tertiary);">bundles</span></div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">13</div>
+        <div class="metric-label">Channel<br><span style="color: var(--text-tertiary);">adapters</span></div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">21</div>
+        <div class="metric-label">Skills<br><span style="color: var(--text-tertiary);">across 5 categories</span></div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">3</div>
+        <div class="metric-label">Tool modules<br><span style="color: var(--text-tertiary);">media, canvas, mcp</span></div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">3</div>
+        <div class="metric-label">Expert reviews<br><span style="color: var(--text-tertiary);">architecture validated</span></div>
+      </div>
+      <div class="metric">
+        <div class="metric-value">4</div>
+        <div class="metric-label">Onboarding stages<br><span style="color: var(--text-tertiary);">fully automated</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <!-- SLIDE 10: GETTING STARTED                     -->
+  <!-- ══════════════════════════════════════════════ -->
+  <div class="slide content-center" data-slide="9">
+    <div class="bg-glow" style="background: var(--accent); bottom: -200px; left: -100px;"></div>
+    <div class="bg-glow" style="background: var(--purple); top: -200px; right: -200px;"></div>
+    <span class="slide-number-label">Get Started</span>
+    <h2 style="text-align: center;">Try it today</h2>
+    <p class="subtitle" style="margin-bottom: 0;">Three steps to your own multi-channel AI assistant.</p>
+
+    <pre style="margin-top: 32px; max-width: 600px; font-size: 13.5px;"><span class="comment"># 1. Include in your bundle</span>
+<span class="key">bundle</span>:
+  <span class="key">name</span>: <span class="string">my-assistant</span>
+<span class="key">includes</span>:
+  - <span class="string">amplifier-bundle-letsgo</span>
+  - <span class="string">amplifier-bundle-letsgo-voice</span>
+  - <span class="string">amplifier-bundle-letsgo-canvas</span>
+
+<span class="comment"># 2. Run the setup wizard</span>
+<span class="accent">recipes execute letsgo:recipes/setup-wizard.yaml</span>
+
+<span class="comment"># 3. Start your assistant</span>
+<span class="accent">amplifier start</span></pre>
+
+    <div style="margin-top: 40px; display: flex; flex-direction: column; align-items: center; gap: 16px;">
+      <a href="https://github.com/michaeljabbour/amplifier-bundle-letsgo"
+         target="_blank"
+         style="display: inline-flex; align-items: center; gap: 10px; background: var(--accent); color: white; text-decoration: none; padding: 14px 32px; border-radius: 12px; font-size: 15px; font-weight: 600; transition: opacity 0.2s;"
+         onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+        View on GitHub
+      </a>
+      <span style="font-size: 13px; color: var(--text-tertiary);">michaeljabbour/amplifier-bundle-letsgo</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Navigation Dots ── -->
+<div class="nav-dots" id="navDots"></div>
+<div class="slide-counter" id="slideCounter">1 / 10</div>
+
+<script>
+(function() {
+  const slides = document.querySelectorAll('.slide');
+  const navDots = document.getElementById('navDots');
+  const counter = document.getElementById('slideCounter');
+  const total = slides.length;
+  let current = 0;
+  let transitioning = false;
+
+  // Build nav dots
+  for (let i = 0; i < total; i++) {
+    const dot = document.createElement('button');
+    dot.className = 'nav-dot' + (i === 0 ? ' active' : '');
+    dot.setAttribute('aria-label', 'Go to slide ' + (i + 1));
+    dot.addEventListener('click', () => goTo(i));
+    navDots.appendChild(dot);
+  }
+
+  function goTo(n) {
+    if (n === current || transitioning || n < 0 || n >= total) return;
+    transitioning = true;
+
+    const dir = n > current ? 1 : -1;
+    slides[current].classList.remove('active');
+    slides[current].classList.add(dir > 0 ? 'prev' : '');
+    slides[current].style.transform = dir > 0 ? 'translateX(-60px)' : 'translateX(60px)';
+
+    slides[n].classList.remove('prev');
+    slides[n].style.transform = dir > 0 ? 'translateX(60px)' : 'translateX(-60px)';
+
+    // Force reflow
+    void slides[n].offsetWidth;
+
+    slides[n].classList.add('active');
+    slides[n].style.transform = '';
+
+    // Update dots
+    navDots.children[current].classList.remove('active');
+    navDots.children[n].classList.add('active');
+
+    current = n;
+    counter.textContent = (current + 1) + ' / ' + total;
+
+    setTimeout(() => { transitioning = false; }, 500);
+  }
+
+  function next() { goTo(current + 1); }
+  function prev() { goTo(current - 1); }
+
+  // Keyboard
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); next(); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prev(); }
+    if (e.key === 'Home') { e.preventDefault(); goTo(0); }
+    if (e.key === 'End') { e.preventDefault(); goTo(total - 1); }
+  });
+
+  // Click zones
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.nav-dots') || e.target.closest('a') || e.target.closest('button')) return;
+    if (e.clientX > window.innerWidth * 0.5) next();
+    else prev();
+  });
+
+  // Touch swipe
+  let touchStartX = 0;
+  document.addEventListener('touchstart', (e) => { touchStartX = e.changedTouches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 50) { dx < 0 ? next() : prev(); }
+  }, { passive: true });
+})();
+</script>
+
+</body>
+</html>
