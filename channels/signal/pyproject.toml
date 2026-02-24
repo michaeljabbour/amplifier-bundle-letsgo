@@ -1,0 +1,18 @@
+[project]
+name = "letsgo-channel-signal"
+version = "0.1.0"
+description = "Signal channel adapter for LetsGo gateway"
+requires-python = ">=3.11"
+dependencies = [
+    "letsgo-gateway",
+]
+
+[project.entry-points."letsgo.channels"]
+signal = "letsgo_channel_signal:SignalChannel"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["letsgo_channel_signal"]
