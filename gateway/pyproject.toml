@@ -12,10 +12,22 @@ dependencies = [
 discord = ["discord.py>=2.3"]
 telegram = ["python-telegram-bot>=20.0"]
 slack = ["slack-sdk>=3.21"]
-all-channels = ["discord.py>=2.3", "python-telegram-bot>=20.0", "slack-sdk>=3.21"]
+whatsapp = ["aiohttp>=3.9"]
+all-channels = [
+    "discord.py>=2.3",
+    "python-telegram-bot>=20.0",
+    "slack-sdk>=3.21",
+]
 
 [project.scripts]
 letsgo-gateway = "letsgo_gateway.cli:main"
+
+[project.entry-points."letsgo.channels"]
+webhook = "letsgo_gateway.channels.webhook:WebhookChannel"
+whatsapp = "letsgo_gateway.channels.whatsapp:WhatsAppChannel"
+telegram = "letsgo_gateway.channels.telegram:TelegramChannel"
+discord = "letsgo_gateway.channels.discord:DiscordChannel"
+slack = "letsgo_gateway.channels.slack:SlackChannel"
 
 [build-system]
 requires = ["hatchling"]
