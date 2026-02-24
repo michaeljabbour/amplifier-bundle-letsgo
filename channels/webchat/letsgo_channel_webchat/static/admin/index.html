@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LetsGo Admin Dashboard</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --surface: #ffffff;
+    --primary: #0d6efd;
+    --primary-hover: #0b5ed7;
+    --text: #1a1a2e;
+    --text-secondary: #6c757d;
+    --border: #e0e0e0;
+    --success: #198754;
+    --warning: #ffc107;
+    --danger: #dc3545;
+    --info: #0dcaf0;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --sidebar-w: 200px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  /* Top bar */
+  #topbar {
+    background: var(--text);
+    color: white;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 14px;
+  }
+  #topbar h1 { font-size: 16px; font-weight: 600; }
+  #topbar .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #topbar .status .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--success);
+  }
+  #topbar .status .dot.error { background: var(--danger); }
+
+  /* Layout */
+  #layout {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* Tab navigation */
+  #tabs {
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 8px 0;
+  }
+  .tab {
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+  }
+  .tab:hover { background: var(--bg); color: var(--text); }
+  .tab.active {
+    color: var(--primary);
+    border-left-color: var(--primary);
+    background: #f0f6ff;
+  }
+  .tab .badge {
+    float: right;
+    background: var(--bg);
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+
+  /* Main content */
+  #main {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+  }
+
+  /* Panel (tab content) */
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .panel h2 { font-size: 18px; margin-bottom: 16px; }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    background: var(--bg);
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafbfc; }
+
+  /* Badges */
+  .status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .status-badge.approved { background: #d1e7dd; color: #0f5132; }
+  .status-badge.blocked { background: #f8d7da; color: #842029; }
+  .status-badge.pending { background: #fff3cd; color: #664d03; }
+  .status-badge.running { background: #d1e7dd; color: #0f5132; }
+  .status-badge.stopped { background: #f8d7da; color: #842029; }
+
+  /* Action buttons */
+  .btn {
+    padding: 4px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-danger:hover { background: #bb2d3b; }
+  .btn-success { background: var(--success); color: white; }
+  .btn-success:hover { background: #157347; }
+  .btn-secondary { background: #6c757d; color: white; }
+  .btn-secondary:hover { background: #5c636a; }
+
+  /* Stat cards */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--surface);
+    padding: 16px;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .stat-card .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .stat-card .value {
+    font-size: 24px;
+    font-weight: 700;
+  }
+  .stat-card .sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+  }
+
+  /* Empty states */
+  .empty {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  /* Token prompt */
+  #token-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  #token-overlay.hidden { display: none; }
+  #token-box {
+    background: white;
+    padding: 32px;
+    border-radius: 12px;
+    width: 360px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+  }
+  #token-box h2 { font-size: 18px; margin-bottom: 12px; }
+  #token-box p { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; }
+  #token-box input {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+  #token-box button {
+    width: 100%;
+    padding: 10px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #token-box button:hover { background: var(--primary-hover); }
+  #token-error {
+    color: var(--danger);
+    font-size: 12px;
+    margin-top: 8px;
+    display: none;
+  }
+
+  /* Refresh indicator */
+  #refresh-indicator {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+</style>
+</head>
+<body>
+
+<!-- Token prompt overlay -->
+<div id="token-overlay">
+  <div id="token-box">
+    <h2>Admin Authentication</h2>
+    <p>Enter the admin token from your gateway config.</p>
+    <input type="password" id="token-input" placeholder="Bearer token">
+    <button id="token-submit">Connect</button>
+    <div id="token-error">Invalid token. Please try again.</div>
+  </div>
+</div>
+
+<!-- Top bar -->
+<div id="topbar">
+  <h1>LetsGo Admin</h1>
+  <div class="status">
+    <span id="refresh-indicator">Refreshing...</span>
+    <div class="dot" id="api-status"></div>
+  </div>
+</div>
+
+<!-- Layout -->
+<div id="layout">
+  <!-- Sidebar tabs -->
+  <div id="tabs">
+    <div class="tab active" data-panel="sessions">Sessions <span class="badge" id="badge-sessions">0</span></div>
+    <div class="tab" data-panel="channels">Channels <span class="badge" id="badge-channels">0</span></div>
+    <div class="tab" data-panel="senders">Senders <span class="badge" id="badge-senders">0</span></div>
+    <div class="tab" data-panel="cron">Cron <span class="badge" id="badge-cron">0</span></div>
+    <div class="tab" data-panel="usage">Usage</div>
+    <div class="tab" data-panel="agents">Agents <span class="badge" id="badge-agents">0</span></div>
+  </div>
+
+  <!-- Main content panels -->
+  <div id="main">
+
+    <!-- Sessions Panel -->
+    <div class="panel active" id="panel-sessions">
+      <h2>Active Sessions</h2>
+      <div id="sessions-content"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- Channels Panel -->
+    <div class="panel" id="panel-channels">
+      <h2>Channels</h2>
+      <div id="channels-content"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- Senders Panel -->
+    <div class="panel" id="panel-senders">
+      <h2>Senders</h2>
+      <div id="senders-content"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- Cron Panel -->
+    <div class="panel" id="panel-cron">
+      <h2>Cron Jobs &amp; Heartbeat</h2>
+      <div id="cron-content"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- Usage Panel -->
+    <div class="panel" id="panel-usage">
+      <h2>Usage Metrics</h2>
+      <div id="usage-content"><div class="empty">Loading...</div></div>
+    </div>
+
+    <!-- Agents Panel -->
+    <div class="panel" id="panel-agents">
+      <h2>Agents</h2>
+      <div id="agents-content"><div class="empty">Loading...</div></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+(function() {
+  let TOKEN = localStorage.getItem('letsgo_admin_token') || '';
+  let refreshInterval = null;
+
+  // ---- Token management ----
+  const overlay = document.getElementById('token-overlay');
+  const tokenInput = document.getElementById('token-input');
+  const tokenSubmit = document.getElementById('token-submit');
+  const tokenError = document.getElementById('token-error');
+
+  if (TOKEN) {
+    overlay.classList.add('hidden');
+    startDashboard();
+  }
+
+  tokenSubmit.addEventListener('click', async function() {
+    const t = tokenInput.value.trim();
+    if (!t) return;
+    TOKEN = t;
+    try {
+      const resp = await apiFetch('sessions');
+      if (resp.ok) {
+        localStorage.setItem('letsgo_admin_token', TOKEN);
+        overlay.classList.add('hidden');
+        tokenError.style.display = 'none';
+        startDashboard();
+      } else {
+        tokenError.style.display = 'block';
+        TOKEN = '';
+      }
+    } catch(e) {
+      tokenError.style.display = 'block';
+      TOKEN = '';
+    }
+  });
+
+  tokenInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') tokenSubmit.click();
+  });
+
+  // ---- API helpers ----
+  function apiFetch(path, opts) {
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    opts.headers['Authorization'] = 'Bearer ' + TOKEN;
+    return fetch('/admin/api/' + path, opts);
+  }
+
+  async function apiGet(path) {
+    const resp = await apiFetch(path);
+    if (!resp.ok) throw new Error('API error: ' + resp.status);
+    return resp.json();
+  }
+
+  async function apiPost(path, body) {
+    const resp = await apiFetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    return resp.json();
+  }
+
+  async function apiDelete(path) {
+    const resp = await apiFetch(path, { method: 'DELETE' });
+    return resp.json();
+  }
+
+  // ---- Tab switching ----
+  document.querySelectorAll('.tab').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+      document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+      tab.classList.add('active');
+      document.getElementById('panel-' + tab.dataset.panel).classList.add('active');
+    });
+  });
+
+  // ---- Rendering functions ----
+
+  function renderSessions(data) {
+    const el = document.getElementById('sessions-content');
+    document.getElementById('badge-sessions').textContent = data.count;
+    if (!data.sessions.length) {
+      el.innerHTML = '<div class="empty">No active sessions</div>';
+      return;
+    }
+    let html = '<table><thead><tr><th>Session ID</th><th>Route Key</th><th>Created</th><th>Messages</th><th>Actions</th></tr></thead><tbody>';
+    data.sessions.forEach(function(s) {
+      html += '<tr>';
+      html += '<td>' + esc(s.session_id) + '</td>';
+      html += '<td>' + esc(s.route_key) + '</td>';
+      html += '<td>' + formatDate(s.created_at) + '</td>';
+      html += '<td>' + s.message_count + '</td>';
+      html += '<td><button class="btn btn-danger" onclick="closeSession(\'' + esc(s.route_key) + '\')">Close</button></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }
+
+  function renderChannels(data) {
+    const el = document.getElementById('channels-content');
+    document.getElementById('badge-channels').textContent = data.count;
+    if (!data.channels.length) {
+      el.innerHTML = '<div class="empty">No channels configured</div>';
+      return;
+    }
+    let html = '<table><thead><tr><th>Name</th><th>Type</th><th>Status</th></tr></thead><tbody>';
+    data.channels.forEach(function(c) {
+      const status = c.running ? 'running' : 'stopped';
+      html += '<tr>';
+      html += '<td>' + esc(c.name) + '</td>';
+      html += '<td>' + esc(c.type) + '</td>';
+      html += '<td><span class="status-badge ' + status + '">' + status + '</span></td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }
+
+  function renderSenders(data) {
+    const el = document.getElementById('senders-content');
+    document.getElementById('badge-senders').textContent = data.count;
+    if (!data.senders.length) {
+      el.innerHTML = '<div class="empty">No senders registered</div>';
+      return;
+    }
+    let html = '<table><thead><tr><th>Sender ID</th><th>Channel</th><th>Status</th><th>Messages</th><th>Last Seen</th><th>Actions</th></tr></thead><tbody>';
+    data.senders.forEach(function(s) {
+      html += '<tr>';
+      html += '<td>' + esc(s.sender_id) + '</td>';
+      html += '<td>' + esc(s.channel) + '</td>';
+      html += '<td><span class="status-badge ' + s.status + '">' + s.status + '</span></td>';
+      html += '<td>' + s.message_count + '</td>';
+      html += '<td>' + formatDate(s.last_seen) + '</td>';
+      html += '<td>';
+      if (s.status === 'approved') {
+        html += '<button class="btn btn-danger" onclick="blockSender(\'' + esc(s.sender_id) + '\',\'' + esc(s.channel) + '\')">Block</button>';
+      } else if (s.status === 'blocked') {
+        html += '<button class="btn btn-success" onclick="unblockSender(\'' + esc(s.sender_id) + '\',\'' + esc(s.channel) + '\')">Unblock</button>';
+      }
+      html += '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }
+
+  function renderCron(data) {
+    const el = document.getElementById('cron-content');
+    document.getElementById('badge-cron').textContent = data.jobs.length;
+    let html = '';
+    if (data.jobs.length) {
+      html += '<h3 style="font-size:14px;margin-bottom:8px;">Scheduled Jobs</h3>';
+      html += '<table><thead><tr><th>Name</th><th>Schedule</th><th>Recipe</th><th>Next Run</th><th>Last Run</th></tr></thead><tbody>';
+      data.jobs.forEach(function(j) {
+        html += '<tr>';
+        html += '<td>' + esc(j.name) + '</td>';
+        html += '<td><code>' + esc(j.cron) + '</code></td>';
+        html += '<td>' + esc(j.recipe) + '</td>';
+        html += '<td>' + esc(j.next_run) + '</td>';
+        html += '<td>' + formatDate(j.last_run) + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+    } else {
+      html += '<div class="empty">No cron jobs configured</div>';
+    }
+
+    if (data.heartbeat_history && data.heartbeat_history.length) {
+      html += '<h3 style="font-size:14px;margin:16px 0 8px;">Recent Heartbeats</h3>';
+      html += '<table><thead><tr><th>Agent</th><th>Status</th><th>Time</th><th>Duration</th></tr></thead><tbody>';
+      data.heartbeat_history.forEach(function(h) {
+        html += '<tr>';
+        html += '<td>' + esc(h.agent_id || '') + '</td>';
+        html += '<td><span class="status-badge ' + (h.status === 'completed' ? 'approved' : 'blocked') + '">' + esc(h.status) + '</span></td>';
+        html += '<td>' + formatDate(h.timestamp) + '</td>';
+        html += '<td>' + (h.duration_ms || 0) + 'ms</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    el.innerHTML = html;
+  }
+
+  function renderUsage(data) {
+    const el = document.getElementById('usage-content');
+    let html = '<div class="stat-grid">';
+
+    html += statCard('Uptime', formatUptime(data.uptime_seconds), '');
+    html += statCard('Total Messages', data.total_messages, 'across all senders');
+    html += statCard('Active Sessions', data.active_sessions, '');
+    html += statCard('Senders', data.senders.total,
+      data.senders.approved + ' approved, ' + data.senders.blocked + ' blocked, ' + data.senders.pending + ' pending');
+    html += statCard('Channels', data.channels.running + '/' + data.channels.configured, 'running / configured');
+
+    html += '</div>';
+    el.innerHTML = html;
+  }
+
+  function renderAgents(data) {
+    const el = document.getElementById('agents-content');
+    document.getElementById('badge-agents').textContent = data.count;
+    if (!data.agents.length) {
+      el.innerHTML = '<div class="empty">No agents configured</div>';
+      return;
+    }
+    let html = '<table><thead><tr><th>Agent ID</th><th>Workspace</th><th>Heartbeat Channels</th></tr></thead><tbody>';
+    data.agents.forEach(function(a) {
+      html += '<tr>';
+      html += '<td>' + esc(a.id) + '</td>';
+      html += '<td><code>' + esc(a.workspace) + '</code></td>';
+      html += '<td>' + esc((a.heartbeat_channels || []).join(', ') || 'none') + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }
+
+  // ---- Helper functions ----
+
+  function statCard(label, value, sub) {
+    return '<div class="stat-card"><div class="label">' + label + '</div><div class="value">' + value + '</div>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
+  }
+
+  function esc(s) {
+    if (s == null) return '';
+    const d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  function formatDate(s) {
+    if (!s) return '-';
+    try {
+      const d = new Date(s);
+      return d.toLocaleString();
+    } catch(e) { return s; }
+  }
+
+  function formatUptime(seconds) {
+    if (!seconds) return '0s';
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return h + 'h ' + m + 'm';
+    if (m > 0) return m + 'm ' + s + 's';
+    return s + 's';
+  }
+
+  // ---- Global action functions ----
+
+  window.closeSession = async function(key) {
+    if (!confirm('Close session ' + key + '?')) return;
+    await apiDelete('sessions/' + encodeURIComponent(key));
+    refreshAll();
+  };
+
+  window.blockSender = async function(senderId, channel) {
+    if (!confirm('Block sender ' + senderId + '?')) return;
+    await apiPost('senders/' + encodeURIComponent(senderId) + '/block', { channel: channel });
+    refreshAll();
+  };
+
+  window.unblockSender = async function(senderId, channel) {
+    await apiPost('senders/' + encodeURIComponent(senderId) + '/unblock', { channel: channel });
+    refreshAll();
+  };
+
+  // ---- Data refresh ----
+
+  async function refreshAll() {
+    const indicator = document.getElementById('refresh-indicator');
+    const statusDot = document.getElementById('api-status');
+    indicator.textContent = 'Refreshing...';
+
+    try {
+      const [sessions, channels, senders, cron, usage, agents] = await Promise.all([
+        apiGet('sessions'),
+        apiGet('channels'),
+        apiGet('senders'),
+        apiGet('cron'),
+        apiGet('usage'),
+        apiGet('agents'),
+      ]);
+      renderSessions(sessions);
+      renderChannels(channels);
+      renderSenders(senders);
+      renderCron(cron);
+      renderUsage(usage);
+      renderAgents(agents);
+      statusDot.className = 'dot';
+      indicator.textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch(e) {
+      statusDot.className = 'dot error';
+      indicator.textContent = 'Error: ' + e.message;
+    }
+  }
+
+  function startDashboard() {
+    refreshAll();
+    refreshInterval = setInterval(refreshAll, 5000);
+  }
+
+})();
+</script>
+</body>
+</html>
