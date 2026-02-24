@@ -1,0 +1,143 @@
+schema: v1.7.0
+
+name: skill-migration
+description: Batch-migrate OpenClaw TypeScript skills to Amplifier-native format with review gates
+version: 1.0.0
+author: letsgo
+tags:
+  - skills
+  - migration
+  - openclaw
+  - batch
+
+context:
+  source_dir: ""
+  priority: "all"
+
+stages:
+  - name: discover
+    description: Scan OpenClaw skills directory and categorize by migration priority
+    steps:
+      - id: scan-skills
+        agent: self
+        prompt: >
+          Scan the OpenClaw skills directory at {{source_dir}} for skills to migrate.
+
+          For each skill found, read its source files (SKILL.md, index.ts, config.json)
+          and categorize it:
+
+          **Priority levels:**
+          - **high**: GitHub, Notion, 1Password, Obsidian, Apple Reminders
+          - **medium**: Spotify, Weather, Apple Notes, Google Calendar
+          - **low**: Everything else
+
+          **Filter:** Only include skills matching priority "{{priority}}"
+          (use "all" to include everything).
+
+          For each skill, report:
+          1. Skill name
+          2. Priority level
+          3. What it does (one sentence from OC SKILL.md)
+          4. API dependencies (from index.ts)
+          5. Config parameters needed (from config.json)
+          6. Estimated complexity: simple (direct API mapping), moderate (multi-step
+             workflows), complex (stateful, multi-API, or heavy logic)
+
+          Present a summary table and recommend a migration order
+          (simple skills first to build momentum).
+
+          If {{source_dir}} is empty or does not exist, report the error and stop.
+        output: skill_inventory
+        timeout: 600
+    approval: true
+
+  - name: migrate
+    description: Translate each selected skill using the 4-step gene transfer process
+    steps:
+      - id: load-migrator
+        agent: self
+        prompt: >
+          Load the skill-migrator skill for reference:
+          Use load_skill(skill_name="skill-migrator") to get the full translation guide.
+
+          Then for each skill in the approved inventory from {{skill_inventory}},
+          execute the 4-step migration process:
+
+          1. **Parse**: Read the OC source files (SKILL.md, index.ts, config.json)
+          2. **Gene transfer**: Map OC patterns to Amplifier equivalents using the
+             translation rules from the skill-migrator guide
+          3. **Generate**: Write the new SKILL.md with proper frontmatter and body.
+             Create companion files (scripts/, references/) if the skill needs them.
+             Save to skills/{skill-name}/SKILL.md
+          4. **Validate**: Run the quality checklist — no OC references, valid frontmatter,
+             all referenced tools exist, secrets documented
+
+          For each migrated skill, report:
+          - Status: success / needs-review / failed
+          - Files created
+          - Any areas flagged for manual review
+          - Validation checklist results
+
+          Work through skills one at a time. If a skill is too complex to migrate
+          automatically, flag it as "needs-review" with specific notes on what
+          requires human judgment.
+        output: migration_results
+        timeout: 1800
+
+  - name: review
+    description: Validate migrated skills and flag issues for human review
+    steps:
+      - id: validate-batch
+        agent: self
+        prompt: >
+          Review all migrated skills from {{migration_results}}.
+
+          For each skill:
+          1. Read the generated SKILL.md
+          2. Verify frontmatter is valid YAML with name, version, description, tags
+          3. Search for any remaining OpenClaw references (openclaw, OC, runTool,
+             callAPI, config.json, index.ts) — flag if found
+          4. Verify all tool references exist in Amplifier (bash, web_fetch, secrets,
+             memory, sandbox, read_file, write_file, grep, glob, web_search)
+          5. Check that API key setup instructions use the secrets tool with the
+             naming convention: {service}/api_key
+          6. Verify the skill loads: load_skill(skill_name="{name}") should not error
+
+          Present a review summary:
+          - **Approved**: Passed all checks, ready to commit
+          - **Needs fixes**: List specific issues to address
+          - **Rejected**: Too many issues, needs manual rewrite
+
+          For "needs fixes" skills, attempt the fixes and re-validate.
+        output: review_results
+        timeout: 900
+    approval: true
+
+  - name: commit
+    description: Stage and commit approved migrated skills
+    steps:
+      - id: commit-approved
+        agent: self
+        prompt: >
+          Based on the review results from {{review_results}}, commit only the
+          **approved** skills.
+
+          For each approved skill:
+          1. Stage: git add skills/{skill-name}/
+          2. Verify staged files look correct: git diff --cached --name-only
+
+          Commit all approved skills in a single commit:
+          git commit -m "feat(skills): migrate {N} OpenClaw skills to Amplifier-native format
+
+          Migrated: {comma-separated list of skill names}
+          Source: {source_dir}"
+
+          Report:
+          - Number of skills committed
+          - Number of skills deferred (needs-review or rejected)
+          - The commit hash
+
+          If any skills were deferred, list them with the reason so they can be
+          addressed in a follow-up.
+        output: commit_results
+        timeout: 300

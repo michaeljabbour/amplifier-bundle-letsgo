@@ -1,0 +1,6 @@
+pypdf>=4.0
+pdfplumber>=0.11
+Pillow>=10.0
+pdf2image>=1.17
+reportlab>=4.0
+pypdfium2>=4.0
