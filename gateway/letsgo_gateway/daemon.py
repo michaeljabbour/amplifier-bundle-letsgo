@@ -10,8 +10,7 @@ from typing import Any
 
 from .auth import PairingStore
 from .channels.base import ChannelAdapter
-from .channels.webhook import WebhookChannel
-from .channels.whatsapp import WhatsAppChannel
+from .channels.registry import discover_channels
 from .cron import CronScheduler
 from .files import extract_send_files, handle_long_response, resolve_files_dir
 from .heartbeat import HeartbeatEngine
@@ -19,15 +18,6 @@ from .models import ChannelType, InboundMessage, OutboundMessage
 from .router import SessionRouter
 
 logger = logging.getLogger(__name__)
-
-# Channel type -> adapter class mapping
-_CHANNEL_CLASSES: dict[str, type[ChannelAdapter]] = {
-    "webhook": WebhookChannel,
-    "whatsapp": WhatsAppChannel,
-}
-
-# Lazy imports for stub channels to avoid requiring their deps at import time
-_STUB_CHANNELS = {"telegram", "discord", "slack"}
 
 
 def _load_config(config_path: str) -> dict[str, Any]:
@@ -183,26 +173,17 @@ class GatewayDaemon:
     # ---- channel init ----
 
     def _init_channels(self) -> None:
-        """Instantiate channel adapters from config."""
+        """Instantiate channel adapters from config using the registry."""
+        available = discover_channels()
         channels_cfg: dict[str, Any] = self._config.get("channels", {})
         for name, ch_cfg in channels_cfg.items():
             ch_type = ch_cfg.get("type", name)
-            if ch_type in _STUB_CHANNELS:
-                # Import lazily
-                from .channels.discord import DiscordChannel
-                from .channels.slack import SlackChannel
-                from .channels.telegram import TelegramChannel
-
-                stub_map: dict[str, type[ChannelAdapter]] = {
-                    "telegram": TelegramChannel,
-                    "discord": DiscordChannel,
-                    "slack": SlackChannel,
-                }
-                cls = stub_map[ch_type]
-            elif ch_type in _CHANNEL_CLASSES:
-                cls = _CHANNEL_CLASSES[ch_type]
-            else:
-                logger.warning("Unknown channel type: %s", ch_type)
+            cls = available.get(ch_type)
+            if cls is None:
+                logger.warning(
+                    "Unknown channel type '%s' — not built-in and no plugin found",
+                    ch_type,
+                )
                 continue
 
             adapter = cls(name=name, config=ch_cfg)
