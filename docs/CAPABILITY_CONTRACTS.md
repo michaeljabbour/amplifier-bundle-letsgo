@@ -32,6 +32,13 @@ Capabilities registered by `amplifier-bundle-letsgo` (core) that satellite bundl
 - **Interface:** `async redeem(handle: str) -> str` — decrypt a secret handle
 - **Graceful degradation:** Satellites that need secrets fail with clear error
 
+### `browser` (composition-only)
+
+- **Registered by:** None — `letsgo-browser` does not register any capabilities
+- **Required by:** None
+- **Interface:** N/A — this satellite composes `amplifier-bundle-browser-tester` (3 agents + CLI tool) and adds gateway-specific context and skills only
+- **Pattern:** Composition-only satellite — no tool modules, no middleware, no capabilities. Demonstrates that a satellite can add value purely through context, skills, and bundle composition without registering any new capabilities on the coordinator.
+
 ## Satellite Rules
 
 1. **Lazy query:** Query capabilities at execution time, not mount time.

@@ -1,0 +1,8 @@
+bundle:
+  name: behavior-browser-capabilities
+  version: 1.0.0
+  description: Browser automation capabilities for LetsGo gateway
+
+context:
+  include:
+    - letsgo-browser:context/browser-awareness.md
