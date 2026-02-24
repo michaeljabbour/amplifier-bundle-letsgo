@@ -131,3 +131,18 @@ def test_channel_type_accepts_custom_string():
         text="hello from signal",
     )
     assert msg.channel == "signal"
+
+
+def test_channels_package_importable_without_sdks():
+    """Importing letsgo_gateway.channels works even without optional SDKs."""
+    # This test verifies that the __init__.py uses lazy imports.
+    # If it eagerly imports discord/telegram/slack, it would fail
+    # in environments without those packages installed.
+    import importlib
+
+    import letsgo_gateway.channels
+
+    importlib.reload(letsgo_gateway.channels)
+    # Should not raise ImportError
+    assert hasattr(letsgo_gateway.channels, "ChannelAdapter")
+    assert hasattr(letsgo_gateway.channels, "WebhookChannel")
