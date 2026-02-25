@@ -24,25 +24,19 @@ LetsGo is a family of composable bundles. The **core** bundle provides security,
 | Modes | Runtime | Careful mode (approval gates), Automation mode (restricted profile), LetsGo Init (onboarding) |
 | Skills | Knowledge | 21 domain expertise packages across document, creative, developer, communication, and operations categories |
 
-### Satellite Bundles (optional, installed via `/letsgo-init` or manually)
+### Optional Capabilities (activate by installing dependencies)
 
-| Satellite | What It Adds | Install |
-|-----------|-------------|---------|
-| **letsgo-voice** | Voice message transcription (Whisper) + TTS (ElevenLabs, edge-tts, OpenAI) across all channels | `pip install amplifier-bundle-letsgo-voice` |
-| **letsgo-canvas** | Agent-driven visual workspace — charts, HTML, SVG, code, tables — at localhost:8080/canvas with WebSocket push | `pip install amplifier-bundle-letsgo-canvas` |
-| **letsgo-webchat** | Web chat interface + 6-tab admin dashboard (sessions, channels, senders, cron, usage, agents) with bearer token auth | `pip install amplifier-bundle-letsgo-webchat` |
-| **letsgo-browser** | Browser automation via browser-tester bundle (3 agents) + gateway-specific skills | `pip install amplifier-bundle-letsgo-browser` |
-| **letsgo-mcp** | MCP client bridge — call tools on external MCP servers via stdio or Streamable HTTP | `pip install amplifier-bundle-letsgo-mcp` |
+All capabilities are included in the bundle. They activate when their pip dependencies are installed — the setup wizard handles this, or install manually:
 
-To add a satellite, install it and add to the user's root `bundle.md`:
-```yaml
-includes:
-  - amplifier-bundle-letsgo           # Core (required)
-  - amplifier-bundle-letsgo-voice     # Optional
-  - amplifier-bundle-letsgo-canvas    # Optional
-```
+| Capability | What It Adds | Activate |
+|-----------|-------------|----------|
+| **Voice** | Transcription (Whisper) + TTS (ElevenLabs, edge-tts, OpenAI) across all channels | `pip install amplifier-module-tool-media-pipeline` |
+| **Canvas** | Visual workspace — charts, HTML, SVG, code — at localhost:8080/canvas with WebSocket push | `pip install letsgo-channel-canvas` |
+| **WebChat** | Web chat + 6-tab admin dashboard (sessions, channels, senders, cron, usage, agents) | `pip install letsgo-channel-webchat` |
+| **Browser** | 3 browser agents (operator, researcher, visual-documenter) + gateway skills | `npm install -g agent-browser` |
+| **MCP** | Bridge to external MCP tool servers via stdio or Streamable HTTP | `pip install amplifier-module-tool-mcp-client` |
 
-The `/letsgo-init` command handles installation and bundle.md updates automatically.
+No separate bundles needed. One `amplifier-bundle-letsgo` includes everything. The `/letsgo-init` wizard handles dependency installation.
 
 ### Gateway Channels (13 adapters)
 

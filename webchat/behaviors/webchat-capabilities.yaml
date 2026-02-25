@@ -1,8 +1,0 @@
-bundle:
-  name: behavior-webchat-capabilities
-  version: 1.0.0
-  description: WebChat and admin dashboard capabilities for the LetsGo gateway
-
-context:
-  include:
-    - letsgo-webchat:context/webchat-awareness.md

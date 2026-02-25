@@ -1,41 +1,45 @@
 bundle:
   name: behavior-letsgo-capabilities
-  version: 1.0.0
-  description: All LetsGo capability enhancements — security, secrets, sandbox, observability, modes, skills
+  version: 2.0.0
+  description: All LetsGo capabilities — core + voice + canvas + browser + webchat + MCP
 
 includes:
+  # Modes (from amplifier-bundle-modes)
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=behaviors/modes.yaml
+  # Core
   - bundle: letsgo:behaviors/security-policy
   - bundle: letsgo:behaviors/secrets
   - bundle: letsgo:behaviors/sandbox
   - bundle: letsgo:behaviors/observability
-  # Memory system (order matters — capabilities must register before consumers)
-  - bundle: letsgo:behaviors/memory-store          # 1. Data layer — registers memory.store
-  - bundle: letsgo:behaviors/memory-memorability   # 2. Scoring capability — before capture
-  - bundle: letsgo:behaviors/memory-boundaries     # 3. Boundary detection — before capture
-  - bundle: letsgo:behaviors/memory-capture        # 4. Auto-capture from tool:post
-  - bundle: letsgo:behaviors/memory-temporal       # 5. Temporal classification capability
-  - bundle: letsgo:behaviors/memory-consolidation  # 6. Decay/boost cycle at session:end
-  - bundle: letsgo:behaviors/memory-compression    # 7. Cluster merging at session:end
-  - bundle: letsgo:behaviors/memory-inject         # 8. Prompt injection — reads from store last
-  # Heartbeat
+  # Memory pipeline (order matters)
+  - bundle: letsgo:behaviors/memory-store
+  - bundle: letsgo:behaviors/memory-memorability
+  - bundle: letsgo:behaviors/memory-boundaries
+  - bundle: letsgo:behaviors/memory-capture
+  - bundle: letsgo:behaviors/memory-temporal
+  - bundle: letsgo:behaviors/memory-consolidation
+  - bundle: letsgo:behaviors/memory-compression
+  - bundle: letsgo:behaviors/memory-inject
+  # Gateway + heartbeat
   - bundle: letsgo:behaviors/heartbeat
-  # Gateway
   - bundle: letsgo:behaviors/gateway
   # Skills
   - bundle: letsgo:behaviors/skills
+  # Satellite capabilities (always included, graceful degradation)
+  - bundle: letsgo:behaviors/voice-capabilities
+  - bundle: letsgo:behaviors/canvas-capabilities
+  - bundle: letsgo:behaviors/browser-capabilities
+  - bundle: letsgo:behaviors/webchat-capabilities
+  - bundle: letsgo:behaviors/mcp-capabilities
 
-# Modes behavior for namespace resolution
-includes:
-  - bundle: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=behaviors/modes.yaml
-
-# Mode discovery — finds modes in letsgo:modes/ (careful, automation, letsgo-init)
+# Mode discovery
 hooks:
   - module: hooks-mode
     source: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=modules/hooks-mode
     config:
       search_paths: ["@letsgo:modes"]
 
-# Mode tool — enables /letsgo-init, /careful, /automation commands
+# Mode tool
 tools:
   - module: tool-mode
     source: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=modules/tool-mode
