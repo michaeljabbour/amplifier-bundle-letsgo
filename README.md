@@ -27,7 +27,7 @@ The recommended way to use LetsGo is to install the behavior at your app level:
 
 ```bash
 # Install (once)
-amplifier bundle add --app git+https://github.com/microsoft/amplifier-bundle-letsgo@main#subdirectory=behaviors/letsgo-capabilities.yaml
+amplifier bundle add --app git+https://github.com/michaeljabbour/amplifier-bundle-letsgo@main#subdirectory=behaviors/letsgo-capabilities.yaml
 
 # Start a session
 amplifier
