@@ -24,16 +24,20 @@ includes:
   # Skills
   - bundle: letsgo:behaviors/skills
 
+# Modes behavior for namespace resolution
+includes:
+  - bundle: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=behaviors/modes.yaml
+
 # Mode discovery — finds modes in letsgo:modes/ (careful, automation, letsgo-init)
 hooks:
   - module: hooks-mode
-    source: git+https://github.com/microsoft/amplifier-module-hooks-mode@main
+    source: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=modules/hooks-mode
     config:
       search_paths: ["@letsgo:modes"]
 
-# Mode tool — enables /letsgo init, /careful, /automation commands
+# Mode tool — enables /letsgo-init, /careful, /automation commands
 tools:
   - module: tool-mode
-    source: git+https://github.com/microsoft/amplifier-module-tool-mode@main
+    source: git+https://github.com/microsoft/amplifier-bundle-modes@main#subdirectory=modules/tool-mode
     config:
       gate_policy: "warn"
