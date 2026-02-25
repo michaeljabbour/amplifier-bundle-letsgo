@@ -2,7 +2,7 @@
 mode:
   name: letsgo-init
   description: "Interactive LetsGo setup wizard — configure provider, channels, satellites, and gateway in one guided flow"
-  shortcut: "letsgo init"
+  shortcut: letsgo-init
 
   tools:
     safe:
@@ -74,7 +74,7 @@ When the recipe completes:
 
 1. Confirm what was configured (provider, channels, satellites, gateway status)
 2. Suggest the user try sending a message through one of their configured channels
-3. Mention they can run `/letsgo init` again anytime to add more channels or satellites
+3. Mention they can run `/letsgo-init` again anytime to add more channels or satellites
 4. Clear this mode: `mode(operation="clear")`
 
 ## Transitions

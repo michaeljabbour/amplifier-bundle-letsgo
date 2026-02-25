@@ -4,7 +4,7 @@ You have enhanced capabilities provided by the LetsGo bundle. Use them appropria
 
 ## Getting Started
 
-**New user?** Type `/letsgo init` to run the interactive setup wizard. It will walk you through provider configuration, channel selection, satellite bundle installation, and gateway startup — all in one guided flow.
+**New user?** Type `/letsgo-init` to run the interactive setup wizard. It will walk you through provider configuration, channel selection, satellite bundle installation, and gateway startup — all in one guided flow.
 
 ## The LetsGo Ecosystem
 
@@ -24,7 +24,7 @@ LetsGo is a family of composable bundles. The **core** bundle provides security,
 | Modes | Runtime | Careful mode (approval gates), Automation mode (restricted profile), LetsGo Init (onboarding) |
 | Skills | Knowledge | 21 domain expertise packages across document, creative, developer, communication, and operations categories |
 
-### Satellite Bundles (optional, installed via `/letsgo init` or manually)
+### Satellite Bundles (optional, installed via `/letsgo-init` or manually)
 
 | Satellite | What It Adds | Install |
 |-----------|-------------|---------|
@@ -42,7 +42,7 @@ includes:
   - amplifier-bundle-letsgo-canvas    # Optional
 ```
 
-The `/letsgo init` command handles installation and bundle.md updates automatically.
+The `/letsgo-init` command handles installation and bundle.md updates automatically.
 
 ### Gateway Channels (13 adapters)
 
@@ -67,7 +67,7 @@ The gateway supports 13 messaging platforms via a pluggable adapter system:
 | Twitch | Plugin | `pip install letsgo-channel-twitch[sdk]` |
 | Feishu | Plugin | `pip install letsgo-channel-feishu[sdk]` |
 
-The `/letsgo init` command handles channel selection, installation, credential storage, and connection testing.
+The `/letsgo-init` command handles channel selection, installation, credential storage, and connection testing.
 
 ## Behavioral Guidelines
 
@@ -92,7 +92,7 @@ The gateway is a multi-channel messaging daemon that bridges 13 external messagi
 platforms to Amplifier sessions. It handles sender pairing, message routing, voice
 transcription (if letsgo-voice is installed), and cron-based scheduled automation.
 
-Type `/letsgo init` to configure the gateway, or run the `setup-wizard` recipe directly.
+Type `/letsgo-init` to configure the gateway, or run the `setup-wizard` recipe directly.
 
 ### Heartbeat Engine
 
@@ -129,4 +129,4 @@ Use `load_skill(skill_name="...")` to load any skill on demand.
 
 - **Careful mode** — Approval gates on high-risk tool calls
 - **Automation mode** — Restricted profile for unattended operation
-- **LetsGo Init** — Interactive setup wizard for first-run configuration (`/letsgo init`)
+- **LetsGo Init** — Interactive setup wizard for first-run configuration (`/letsgo-init`)

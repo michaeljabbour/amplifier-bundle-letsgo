@@ -19,7 +19,7 @@ The core bundle provides security, memory, observability, and a multi-channel ga
 - **Heartbeat engine** — Proactive scheduled agent sessions for check-ins and automation
 - **21 domain skills** — Documents (docx/pdf/pptx/xlsx), creative design, MCP server building, browser automation, and more
 - **5 specialist agents** — Gateway operator, memory curator, security reviewer, creative specialist, document specialist
-- **3 runtime modes** — Careful mode, automation mode, `/letsgo init`
+- **3 runtime modes** — Careful mode, automation mode, `/letsgo-init`
 
 ## Quick Start
 
@@ -36,7 +36,7 @@ amplifier
 Then run the interactive setup wizard:
 
 ```
-/letsgo init
+/letsgo-init
 ```
 
 The wizard walks you through everything:
@@ -90,7 +90,7 @@ includes:
   - amplifier-bundle-letsgo-webchat   # Optional
 ```
 
-The `/letsgo init` wizard handles satellite selection, installation, and bundle.md updates automatically.
+The `/letsgo-init` wizard handles satellite selection, installation, and bundle.md updates automatically.
 
 ## Gateway Channels
 
@@ -132,7 +132,7 @@ letsgo-gateway cron create --name N --cron EXPR --recipe PATH     # Create job
 
 | Mode | Shortcut | Purpose |
 |------|----------|---------|
-| `letsgo-init` | `/letsgo init` | Interactive setup wizard — provider, channels, satellites, gateway |
+| `letsgo-init` | `/letsgo-init` | Interactive setup wizard — provider, channels, satellites, gateway |
 | `careful` | `/careful` | Approval gates on high-risk tool calls |
 | `automation` | `/automation` | Restricted profile for unattended operation |
 
