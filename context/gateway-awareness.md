@@ -6,17 +6,36 @@ The **LetsGo Gateway** is a standalone daemon that manages multi-channel messagi
 
 The gateway is a long-running process that listens for inbound messages, processes them through a pipeline, and dispatches them to Amplifier sessions. It does not contain agent logic itself — it is infrastructure that connects external messaging platforms to the agent runtime.
 
-## Channel Adapters
+## Channel Adapters (13)
 
-The gateway supports multiple messaging platforms through a pluggable adapter system:
+The gateway supports 13 messaging platforms through a pluggable adapter system with entry-point discovery. Channels are installed independently — you only install what you need.
 
-- **Webhook** — Generic HTTP endpoint for custom integrations. Accepts POST requests with a standard message payload. Useful for connecting internal tools, custom bots, or testing.
-- **Telegram** — Telegram Bot API adapter. Handles long-polling or webhook-based message receipt, message formatting (Markdown), and media attachments.
-- **Discord** — Discord bot adapter. Manages guild connections, channel routing, slash commands, and rich embeds.
-- **Slack** — Slack app adapter. Handles Events API subscriptions, interactive messages, slash commands, and thread-based conversations.
-- **WhatsApp** — WhatsApp Cloud API adapter. Receives messages via Meta webhook, sends responses via the Graph API. Supports text, images, documents, audio, and video. Verifies webhook signatures when app_secret is configured. Splits long messages at paragraph boundaries.
+### Built-in Channels (included with letsgo-gateway)
 
-Each adapter normalizes inbound messages into a common internal format before passing them to the authentication and routing pipeline.
+- **Webhook** — Generic HTTP endpoint for custom integrations. Always available, no extra dependencies.
+- **WhatsApp** — WhatsApp via whatsapp-web.js Node bridge. Supports text, images, documents, audio, video. QR code auth.
+
+### Built-in with Optional Dependencies
+
+- **Telegram** — Telegram Bot API (python-telegram-bot). Long-polling or webhook, Markdown formatting, 8 media types, voice messages. Install: `pip install letsgo-gateway[telegram]`
+- **Discord** — Discord bot (discord.py). Guild connections, slash commands, rich embeds, DM-only mode. Install: `pip install letsgo-gateway[discord]`
+- **Slack** — Slack app (slack-sdk). Socket Mode or Events API, HMAC-SHA256 verification, thread-based conversations. Install: `pip install letsgo-gateway[slack]`
+
+### Plugin Channels (separate packages, discovered via entry points)
+
+- **Signal** — Signal via signal-cli subprocess bridge. Install: `pip install letsgo-channel-signal`
+- **Matrix** — Matrix via matrix-nio. Homeserver + access token auth. Install: `pip install letsgo-channel-matrix`
+- **Teams** — Microsoft Teams via Bot Framework. App ID + password auth. Install: `pip install letsgo-channel-teams`
+- **LINE** — LINE Messaging API. Flex Message support. Install: `pip install letsgo-channel-line[sdk]`
+- **Google Chat** — Google Workspace Chat API. Service account auth, Card v2 messages. Install: `pip install letsgo-channel-googlechat[sdk]`
+- **iMessage** — iMessage via AppleScript (macOS only). Install: `pip install letsgo-channel-imessage`
+- **Nostr** — Decentralized Nostr protocol. Private key + relay URLs. Install: `pip install letsgo-channel-nostr[sdk]`
+- **IRC** — IRC via irc3. Server/channel/nick config, SSL support. Install: `pip install letsgo-channel-irc[sdk]`
+- **Mattermost** — Mattermost via mattermostdriver. Token auth, post formatting. Install: `pip install letsgo-channel-mattermost[sdk]`
+- **Twitch** — Twitch chat via TwitchIO. OAuth token auth, 500-char messages. Install: `pip install letsgo-channel-twitch[sdk]`
+- **Feishu** — Feishu/Lark Open Platform API. App ID/secret auth, interactive cards. Install: `pip install letsgo-channel-feishu[sdk]`
+
+All adapters follow the same `ChannelAdapter` protocol — they normalize inbound messages into a common `InboundMessage` format before passing them to the authentication and routing pipeline. New channels can be added by creating a package that registers a `letsgo.channels` entry point.
 
 ## PairingStore Authentication
 

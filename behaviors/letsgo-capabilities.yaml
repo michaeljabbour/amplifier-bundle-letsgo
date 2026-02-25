@@ -1,7 +1,7 @@
 bundle:
   name: behavior-letsgo-capabilities
   version: 1.0.0
-  description: All LetsGo capability enhancements — security, secrets, sandbox, observability
+  description: All LetsGo capability enhancements — security, secrets, sandbox, observability, modes, skills
 
 includes:
   - bundle: letsgo:behaviors/security-policy
@@ -21,3 +21,19 @@ includes:
   - bundle: letsgo:behaviors/heartbeat
   # Gateway
   - bundle: letsgo:behaviors/gateway
+  # Skills
+  - bundle: letsgo:behaviors/skills
+
+# Mode discovery — finds modes in letsgo:modes/ (careful, automation, letsgo-init)
+hooks:
+  - module: hooks-mode
+    source: git+https://github.com/microsoft/amplifier-module-hooks-mode@main
+    config:
+      search_paths: ["@letsgo:modes"]
+
+# Mode tool — enables /letsgo init, /careful, /automation commands
+tools:
+  - module: tool-mode
+    source: git+https://github.com/microsoft/amplifier-module-tool-mode@main
+    config:
+      gate_policy: "warn"

@@ -2,45 +2,79 @@
 
 You have enhanced capabilities provided by the LetsGo bundle. Use them appropriately.
 
-## Available Capabilities
+## Getting Started
+
+**New user?** Type `/letsgo init` to run the interactive setup wizard. It will walk you through provider configuration, channel selection, satellite bundle installation, and gateway startup — all in one guided flow.
+
+## The LetsGo Ecosystem
+
+LetsGo is a family of composable bundles. The **core** bundle provides security, memory, observability, and the gateway. **Satellite bundles** add optional capabilities — voice, canvas, webchat, browser automation, and MCP integration. You only install what you need.
+
+### Core Capabilities (always available)
 
 | Capability | Type | Purpose |
 |------------|------|---------|
-| Tool Policy | Hook | Classifies tool calls by risk level, gates high-risk operations |
-| Secrets | Tool | Encrypted storage for API keys, tokens, and credentials |
-| Sandbox | Tool | Isolated Docker execution for untrusted or experimental code |
-| Telemetry | Hook | Metrics collection — tool latency, token usage, error rates |
-| Memory | Hook+Tool | Neuroscience-inspired memory pipeline — capture, score, consolidate, compress, inject |
-| Memory Store | `memory` tool | Persistent memory with scored search, dedup, TTL, facts, sensitivity gating |
-| Memory Capture | auto (hook) | Extracts observations from tool results; gated by memorability scoring |
-| Memory Boundaries | auto (hook) | Detects contextual shifts in tool activity for segment-aware memory |
-| Memory Memorability | auto (capability) | Scores content memorability; filters low-value observations before storage |
-| Memory Temporal | auto (capability) | Multi-scale retrieval: immediate, task, session, project timescales |
-| Memory Consolidation | auto (hook) | Boosts accessed memories, decays unused ones at session end |
-| Memory Compression | auto (hook) | Clusters and merges similar old memories at session end |
-| Memory Injection | auto (hook) | Injects relevant memories into each prompt as ephemeral context |
-| Gateway | Application | Multi-channel messaging daemon with sender pairing and cron scheduling |
-| Heartbeat Engine | Application | Proactive scheduled sessions — CronScheduler fires HeartbeatEngine per agent |
-| Modes | Runtime | Careful mode (approval gates) and Automation mode (restricted profile) |
-| Skills | Knowledge | Domain expertise packages — browser automation, image generation, scheduling, messaging, skill authoring |
+| Tool Policy | Hook | 4-tier risk classification, command/path allowlists, careful mode, automation mode |
+| Secrets | Tool | Fernet-encrypted credential storage with handle-based access and 5-minute TTL |
+| Sandbox | Tool | Docker-first isolated execution with resource limits and network isolation |
+| Telemetry | Hook | 7-event session telemetry — tool latency, token usage, error rates, JSONL logs |
+| Memory | Hook+Tool | Bio-inspired 8-module pipeline — capture, score, consolidate, compress, inject |
+| Gateway | Application | Multi-channel messaging daemon with 13 channel adapters, sender pairing, cron scheduling |
+| Heartbeat | Application | Proactive scheduled sessions — CronScheduler fires HeartbeatEngine per agent |
+| Modes | Runtime | Careful mode (approval gates), Automation mode (restricted profile), LetsGo Init (onboarding) |
+| Skills | Knowledge | 21 domain expertise packages across document, creative, developer, communication, and operations categories |
+
+### Satellite Bundles (optional, installed via `/letsgo init` or manually)
+
+| Satellite | What It Adds | Install |
+|-----------|-------------|---------|
+| **letsgo-voice** | Voice message transcription (Whisper) + TTS (ElevenLabs, edge-tts, OpenAI) across all channels | `pip install amplifier-bundle-letsgo-voice` |
+| **letsgo-canvas** | Agent-driven visual workspace — charts, HTML, SVG, code, tables — at localhost:8080/canvas with WebSocket push | `pip install amplifier-bundle-letsgo-canvas` |
+| **letsgo-webchat** | Web chat interface + 6-tab admin dashboard (sessions, channels, senders, cron, usage, agents) with bearer token auth | `pip install amplifier-bundle-letsgo-webchat` |
+| **letsgo-browser** | Browser automation via browser-tester bundle (3 agents) + gateway-specific skills | `pip install amplifier-bundle-letsgo-browser` |
+| **letsgo-mcp** | MCP client bridge — call tools on external MCP servers via stdio or Streamable HTTP | `pip install amplifier-bundle-letsgo-mcp` |
+
+To add a satellite, install it and add to the user's root `bundle.md`:
+```yaml
+includes:
+  - amplifier-bundle-letsgo           # Core (required)
+  - amplifier-bundle-letsgo-voice     # Optional
+  - amplifier-bundle-letsgo-canvas    # Optional
+```
+
+The `/letsgo init` command handles installation and bundle.md updates automatically.
+
+### Gateway Channels (13 adapters)
+
+The gateway supports 13 messaging platforms via a pluggable adapter system:
+
+| Channel | Type | Install |
+|---------|------|---------|
+| Webhook | Built-in | Always available |
+| WhatsApp | Built-in | Always available |
+| Telegram | Built-in (optional dep) | `pip install letsgo-gateway[telegram]` |
+| Discord | Built-in (optional dep) | `pip install letsgo-gateway[discord]` |
+| Slack | Built-in (optional dep) | `pip install letsgo-gateway[slack]` |
+| Signal | Plugin | `pip install letsgo-channel-signal` |
+| Matrix | Plugin | `pip install letsgo-channel-matrix` |
+| Teams | Plugin | `pip install letsgo-channel-teams` |
+| LINE | Plugin | `pip install letsgo-channel-line[sdk]` |
+| Google Chat | Plugin | `pip install letsgo-channel-googlechat[sdk]` |
+| iMessage | Plugin | `pip install letsgo-channel-imessage` (macOS only) |
+| Nostr | Plugin | `pip install letsgo-channel-nostr[sdk]` |
+| IRC | Plugin | `pip install letsgo-channel-irc[sdk]` |
+| Mattermost | Plugin | `pip install letsgo-channel-mattermost[sdk]` |
+| Twitch | Plugin | `pip install letsgo-channel-twitch[sdk]` |
+| Feishu | Plugin | `pip install letsgo-channel-feishu[sdk]` |
+
+The `/letsgo init` command handles channel selection, installation, credential storage, and connection testing.
 
 ## Behavioral Guidelines
 
-- **High-risk tools** (bash, write_file) are auto-allowed by default.
-- Enable `careful_mode` in tool-policy config to require explicit approval prompts.
-- **Secrets** must always go through `tool-secrets` — never store credentials in plain text, environment variables, or conversation history.
+- **High-risk tools** (bash, write_file) are auto-allowed by default. Enable `careful_mode` for approval prompts.
+- **Secrets** must always go through `tool-secrets` — never store credentials in plain text.
 - **Untrusted code** should be executed inside the sandbox when available.
-- **Telemetry** runs silently in the background. Other modules can query live metrics via the `telemetry.metrics` capability.
-
-## Context Awareness
-
-Each capability injects its own thin awareness context. Refer to them for specific usage rules:
-
-- Tool policy risk levels and approval behavior
-- Secret management operations and security rules
-- Sandbox resource limits and network isolation
-- Telemetry output location and metric types
-- Memory system operations and safety rules (see `memory-system-awareness.md`)
+- **Telemetry** runs silently in the background.
 
 ## Memory System
 
@@ -54,37 +88,45 @@ delegate to `letsgo:memory-curator`.
 
 ## Gateway
 
-The gateway is a multi-channel messaging daemon that bridges external messaging
-platforms (webhook, telegram, discord, slack) to Amplifier sessions. It handles
-sender pairing, message routing, and cron-based scheduled automation. Use the
-`setup-wizard` recipe for first-run configuration.
+The gateway is a multi-channel messaging daemon that bridges 13 external messaging
+platforms to Amplifier sessions. It handles sender pairing, message routing, voice
+transcription (if letsgo-voice is installed), and cron-based scheduled automation.
+
+Type `/letsgo init` to configure the gateway, or run the `setup-wizard` recipe directly.
 
 ### Heartbeat Engine
 
-The heartbeat is a proactive session engine built into the gateway daemon. It is
-a **direct programmatic session** — not a recipe, not a hook.
+The heartbeat is a proactive session engine built into the gateway daemon:
 
 - **Cron-scheduled**: CronScheduler fires `HeartbeatEngine.run_all()` on a configurable schedule
 - **Per-agent prompts**: Each agent's heartbeat prompt is defined in `context/heartbeat/agents/{id}.md`
-- **Full Amplifier sessions**: Each heartbeat creates a real Amplifier session — all memory hooks fire automatically, all tools are available
-- **Channel routing**: Heartbeat responses are routed to configured channels like any other message
+- **Full Amplifier sessions**: Each heartbeat creates a real session — all memory hooks fire, all tools available
+- **Channel routing**: Heartbeat responses are routed to configured channels
 
-Two session creation paths exist in the gateway:
-- **Reactive**: `SessionRouter.get_or_create(sender)` — triggered by incoming user messages
-- **Proactive**: `HeartbeatEngine.run_heartbeat(agent_id)` — triggered by the cron scheduler
+## Specialist Agents
 
-Both produce identical Amplifier sessions with full hook and tool support.
+| Agent | Domain |
+|-------|--------|
+| `letsgo:gateway-operator` | Channel config, sender pairing, cron scheduling, gateway diagnostics |
+| `letsgo:memory-curator` | Complex memory retrieval, health analysis, consolidation oversight |
+| `letsgo:security-reviewer` | Tool policy review, risk classification, allowlist management |
+| `letsgo:creative-specialist` | Orchestrates 6 creative skills (canvas-design, algorithmic-art, brand-guidelines, frontend-design, theme-factory, slack-gif-creator) |
+| `letsgo:document-specialist` | Orchestrates 4 document skills (docx, pdf, pptx, xlsx) |
+
+## Skills (21)
+
+| Category | Skills |
+|----------|--------|
+| Document | docx, pdf, pptx, xlsx |
+| Creative | algorithmic-art, brand-guidelines, canvas-design, frontend-design, slack-gif-creator, theme-factory |
+| Developer | mcp-builder, web-artifacts-builder, webapp-testing |
+| Communication | doc-coauthoring, internal-comms |
+| Operations | agent-browser, imagegen, schedule, send-user-message, skill-creator, skill-migrator |
+
+Use `load_skill(skill_name="...")` to load any skill on demand.
 
 ## Modes
 
-LetsGo supports runtime modes that adjust agent behavior:
-
-- **Careful mode** — enables approval gates on high-risk tool calls, requiring explicit user confirmation before execution.
-- **Automation mode** — applies a restricted profile suitable for unattended operation, limiting tools to a safe subset.
-
-## Skills
-
-Domain expertise packages that provide specialized knowledge and workflows.
-Available skills cover browser automation, image generation, scheduling,
-messaging integration, and skill authoring. Use `load_skill` to discover
-and load skills as needed.
+- **Careful mode** — Approval gates on high-risk tool calls
+- **Automation mode** — Restricted profile for unattended operation
+- **LetsGo Init** — Interactive setup wizard for first-run configuration (`/letsgo init`)

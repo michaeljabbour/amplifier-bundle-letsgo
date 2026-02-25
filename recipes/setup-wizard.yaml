@@ -152,9 +152,15 @@ stages:
 
           Ask which satellites they want. For each selected:
           1. pip install the satellite bundle
-          2. Note that the user will need to add it to their root bundle.md includes
+          2. Automatically update the user's root bundle.md to add the satellite
+             to the includes list. Read the current bundle.md, parse the YAML
+             frontmatter, add the satellite to the includes array, and write it back.
+             For example, if they select voice and canvas, ensure bundle.md includes:
+               - amplifier-bundle-letsgo-voice
+               - amplifier-bundle-letsgo-canvas
+          3. Verify the updated bundle.md is valid YAML
 
-          Report which satellites were installed.
+          Report which satellites were installed and confirm bundle.md was updated.
         output: satellite_config
         timeout: 300
 
