@@ -255,6 +255,15 @@ class GatewayDaemon:
         channel = message.channel
 
         # 1. Check auth
+        # BLAST GUARD: reject sends to any non-personal recipient
+        _blocked_patterns = ("broadcast", "status", "@g.us", "@newsletter")
+        if any(b in sender_id.lower() for b in _blocked_patterns):
+            logger.error(
+                "BLAST BLOCKED in daemon: refusing to process message "
+                "from broadcast/group sender '%s'", sender_id
+            )
+            return
+
         if not self.auth.is_approved(sender_id, channel):
             return await self._handle_pairing(message)
 

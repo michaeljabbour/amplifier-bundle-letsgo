@@ -238,6 +238,13 @@ class WhatsAppChannel(ChannelAdapter):
     async def _handle_inbound(self, data: dict[str, Any]) -> None:
         """Convert a bridge message event to InboundMessage and dispatch."""
         sender_id = data.get("from", "")
+
+        # NEVER process broadcast/status events — responding to these
+        # posts WhatsApp Status updates visible to all contacts.
+        if "broadcast" in sender_id.lower() or "status" in sender_id.lower():
+            logger.debug("Ignoring broadcast/status message from %s", sender_id)
+            return
+
         sender_label = data.get("sender", "")
         text = data.get("text", "")
         files = data.get("files", [])
@@ -284,6 +291,24 @@ class WhatsAppChannel(ChannelAdapter):
             return False
 
         to = message.thread_id or ""
+
+        # HARD BLOCK: never send to broadcast channels or group chats.
+        # Sending to these would blast all contacts or entire groups without
+        # any human intervention or consent.
+        _blocked = ("broadcast", "status", "@g.us", "@newsletter")
+        if any(b in to.lower() for b in _blocked):
+            logger.error(
+                "BLAST BLOCKED: refusing to send to '%s' — "
+                "broadcast/group sends require explicit human action", to
+            )
+            return False
+
+        # HARD BLOCK: never send to more than one recipient at a time.
+        if "," in to or ";" in to:
+            logger.error(
+                "BLAST BLOCKED: refusing multi-recipient send to '%s'", to
+            )
+            return False
 
         # Send file attachments
         file_paths = [a.get("path", "") for a in message.attachments if a.get("path")]
