@@ -5,7 +5,7 @@ bundle:
 
 tools:
   - module: tool-media-pipeline
-    source: ../modules/tool-media-pipeline
+    source: letsgo:modules/tool-media-pipeline
     config:
       transcription:
         provider: "whisper-api"
@@ -15,4 +15,4 @@ tools:
 
 context:
   include:
-    - letsgo-voice:context/voice-awareness.md
+    - letsgo:context/voice-awareness.md

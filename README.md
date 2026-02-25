@@ -43,7 +43,7 @@ The wizard walks you through everything:
 
 1. **AI Provider** — Choose Anthropic, OpenAI, Azure, or Ollama. API key stored encrypted.
 2. **Messaging Channels** — Select which platforms to connect. Dependencies installed automatically.
-3. **Satellite Bundles** — Choose optional capabilities (voice, canvas, webchat, browser, MCP). Installed and wired into your bundle automatically.
+3. **Optional Capabilities** — Choose add-ons (voice, canvas, webchat, browser, MCP). Dependencies installed automatically.
 4. **Gateway Daemon** — Start the always-on daemon with heartbeat scheduling.
 
 Zero manual file editing. Zero pip commands. Zero YAML wrangling.
@@ -68,29 +68,19 @@ includes:
   - bundle: letsgo:behaviors/secrets
 ```
 
-## Satellite Bundles
+## Optional Capabilities
 
-LetsGo is a family of composable bundles. The core provides security, memory, observability, and the gateway. Satellites add optional capabilities:
+LetsGo includes voice, canvas, webchat, browser, and MCP capabilities out of the box. They activate when you install their dependencies — the setup wizard handles this, or install manually:
 
-| Satellite | What It Adds | Install |
-|-----------|-------------|---------|
-| **letsgo-voice** | Voice message transcription (Whisper API / local) + TTS (ElevenLabs / edge-tts / OpenAI) across all channels | `pip install amplifier-bundle-letsgo-voice` |
-| **letsgo-canvas** | Agent-driven visual workspace — charts, HTML, SVG, code, tables at `localhost:8080/canvas` with real-time WebSocket push | `pip install amplifier-bundle-letsgo-canvas` |
-| **letsgo-webchat** | Web chat interface + 6-tab admin dashboard (sessions, channels, senders, cron, usage, agents) with bearer token auth | `pip install amplifier-bundle-letsgo-webchat` |
-| **letsgo-browser** | Browser automation via 3 browser-tester agents (operator, researcher, visual-documenter) + gateway-specific skills | `pip install amplifier-bundle-letsgo-browser` |
-| **letsgo-mcp** | MCP client bridge — call tools on external MCP servers via stdio subprocess or Streamable HTTP | `pip install amplifier-bundle-letsgo-mcp` |
+| Capability | What It Adds | Activate |
+|-----------|-------------|----------|
+| **Voice** | Transcription (Whisper API / local) + TTS (ElevenLabs / edge-tts / OpenAI) across all channels | `pip install amplifier-module-tool-media-pipeline` |
+| **Canvas** | Visual workspace — charts, HTML, SVG, code, tables at `localhost:8080/canvas` with WebSocket push | `pip install letsgo-channel-canvas` |
+| **WebChat** | Web chat interface + 6-tab admin dashboard (sessions, channels, senders, cron, usage, agents) | `pip install letsgo-channel-webchat` |
+| **Browser** | 3 browser agents (operator, researcher, visual-documenter) + gateway-specific skills | `npm install -g agent-browser` |
+| **MCP** | Bridge to external MCP tool servers via stdio subprocess or Streamable HTTP | `pip install amplifier-module-tool-mcp-client` |
 
-All satellites are peer bundles — the user's root `bundle.md` includes whichever ones they want:
-
-```yaml
-includes:
-  - amplifier-bundle-letsgo           # Core (required)
-  - amplifier-bundle-letsgo-voice     # Optional
-  - amplifier-bundle-letsgo-canvas    # Optional
-  - amplifier-bundle-letsgo-webchat   # Optional
-```
-
-The `/letsgo-init` wizard handles satellite selection, installation, and bundle.md updates automatically.
+No separate bundles to include. One `amplifier-bundle-letsgo` gives you everything — capabilities activate automatically when their dependencies are present.
 
 ## Gateway Channels
 
@@ -197,7 +187,7 @@ See [docs/TOOL_POLICY_GUIDE.md](docs/TOOL_POLICY_GUIDE.md) for the complete refe
 ```
 amplifier-bundle-letsgo/
 ├── bundle.md                          # Root bundle (thin pattern)
-├── behaviors/                         # 16 composable behaviors
+├── behaviors/                         # 21 composable behaviors
 │   ├── letsgo-capabilities.yaml      # Full capability set — includes all others
 │   ├── security-policy.yaml          # Tool policy + risk classification
 │   ├── secrets.yaml                  # Encrypted credential storage
@@ -206,23 +196,23 @@ amplifier-bundle-letsgo/
 │   ├── memory-*.yaml                 # 8 memory pipeline behaviors
 │   ├── gateway.yaml                  # Multi-channel messaging
 │   ├── heartbeat.yaml                # Proactive scheduled sessions
-│   └── skills.yaml                   # Skill discovery + specialist routing
+│   ├── skills.yaml                   # Skill discovery + specialist routing
+│   ├── voice-capabilities.yaml       # Voice transcription + TTS
+│   ├── canvas-capabilities.yaml      # Visual workspace
+│   ├── browser-capabilities.yaml     # Browser automation
+│   ├── webchat-capabilities.yaml     # WebChat + admin dashboard
+│   └── mcp-capabilities.yaml         # MCP client bridge
 ├── modules/                           # 14 Python modules (9 hooks + 5 tools)
-├── agents/                            # 5 specialist agents
+├── agents/                            # 8 specialist agents
 ├── modes/                             # 3 runtime modes
-├── skills/                            # 21 domain skills
-├── recipes/                           # 5 workflow recipes
+├── skills/                            # 22 domain skills
+├── recipes/                           # 6 workflow recipes
 ├── context/                           # Agent awareness context files
-├── gateway/                           # Gateway daemon (letsgo-gateway package)
-├── channels/                          # 11 channel adapter plugin packages
-│   ├── signal/, matrix/, teams/      # Phase 1 channels
-│   ├── canvas/, webchat/             # Satellite channel plugins
-│   └── line/, googlechat/, ...       # Phase 7 channels
-├── voice/                             # Voice satellite bundle
-├── canvas/                            # Canvas satellite bundle
-├── browser/                           # Browser satellite bundle
-├── webchat/                           # WebChat satellite bundle
-└── mcp/                               # MCP satellite bundle
+├── gateway/                           # Gateway daemon (pip: letsgo-gateway)
+└── channels/                          # Channel adapter plugins (pip: letsgo-channel-*)
+    ├── signal/, matrix/, teams/
+    ├── canvas/, webchat/
+    └── line/, googlechat/, imessage/, nostr/, irc/, mattermost/, twitch/, feishu/
 ```
 
 ## Configuration

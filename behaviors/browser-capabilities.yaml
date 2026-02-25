@@ -5,4 +5,4 @@ bundle:
 
 context:
   include:
-    - letsgo-browser:context/browser-awareness.md
+    - letsgo:context/browser-awareness.md

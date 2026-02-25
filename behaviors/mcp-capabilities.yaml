@@ -5,9 +5,9 @@ bundle:
 
 tools:
   - module: tool-mcp-client
-    source: ../modules/tool-mcp-client
+    source: letsgo:modules/tool-mcp-client
     config: {}
 
 context:
   include:
-    - "@letsgo-mcp:context/mcp-awareness.md"
+    - letsgo:context/mcp-awareness.md
