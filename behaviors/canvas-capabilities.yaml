@@ -5,7 +5,7 @@ bundle:
 
 tools:
   - module: tool-canvas
-    source: letsgo:modules/tool-canvas
+    source: ../modules/tool-canvas
     config: {}
 
 context:

@@ -38,7 +38,7 @@ You are running the LetsGo interactive setup wizard. Your job is to guide the us
 Execute the setup wizard recipe, which handles all 4 stages with approval gates between each:
 
 ```
-recipes execute letsgo:recipes/setup-wizard.yaml
+recipes execute @letsgo:recipes/setup-wizard.yaml
 ```
 
 The recipe handles everything:
