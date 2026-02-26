@@ -16,6 +16,10 @@ from .files import extract_send_files, handle_long_response, resolve_files_dir
 from .heartbeat import HeartbeatEngine
 from .models import ChannelType, InboundMessage, OutboundMessage
 from .router import SessionRouter
+from .security import (
+    get_blocked_sender_patterns,
+    load_security_defaults,
+)
 from .voice import VoiceMiddleware
 
 logger = logging.getLogger(__name__)
@@ -65,6 +69,10 @@ class GatewayDaemon:
         )
         self.channels: dict[str, ChannelAdapter] = {}
         self._running = False
+
+        # Load security defaults (YAML file + config overrides)
+        self._security = load_security_defaults(self._config.get("security", {}))
+        self._blocked_senders = get_blocked_sender_patterns(self._security)
 
         # Voice middleware (optional)
         voice_config = self._config.get("voice", {})
@@ -254,16 +262,16 @@ class GatewayDaemon:
         sender_id = message.sender_id
         channel = message.channel
 
-        # 1. Check auth
-        # BLAST GUARD: reject sends to any non-personal recipient
-        _blocked_patterns = ("broadcast", "status", "@g.us", "@newsletter")
-        if any(b in sender_id.lower() for b in _blocked_patterns):
-            logger.error(
-                "BLAST BLOCKED in daemon: refusing to process message "
-                "from broadcast/group sender '%s'",
+        # 0. SAFETY: Drop system/broadcast senders (all channels).
+        # Patterns loaded from security_defaults.yaml at __init__.
+        if any(pat in sender_id.lower() for pat in self._blocked_senders):
+            logger.warning(
+                "BLOCKED inbound from system sender '%s' on %s "
+                "(pattern matched in security_defaults.yaml)",
                 sender_id,
+                channel,
             )
-            return
+            return ""
 
         if not self.auth.is_approved(sender_id, channel):
             return await self._handle_pairing(message)

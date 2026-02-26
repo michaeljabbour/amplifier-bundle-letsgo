@@ -1,0 +1,121 @@
+# =============================================================================
+# LetsGo Gateway — Security Defaults
+# =============================================================================
+#
+# This file defines dangerous permissions and safety boundaries for the gateway.
+# Edit this file to customize safety behavior. The gateway reads these defaults
+# at startup and applies them to all channels and outbound paths.
+#
+# The meta-rule: The AI should only be able to reach someone who has first
+# reached out to the AI and been approved.
+#
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Blocked Inbound Senders (all channels)
+# ---------------------------------------------------------------------------
+# Messages from sender_ids matching ANY of these patterns are silently dropped
+# BEFORE auth, rate limiting, or routing. These are system/broadcast addresses
+# that are never real human senders.
+#
+# Applied at: daemon._on_message() — first check, all channels.
+
+blocked_sender_patterns:
+  - "broadcast"
+  - "status@"
+  - "@newsletter"
+
+# ---------------------------------------------------------------------------
+# Blocked Outbound Recipients (all channels)
+# ---------------------------------------------------------------------------
+# The gateway will NEVER send a message to a recipient matching any of these
+# patterns. This prevents blast scenarios (e.g., posting to WhatsApp Status,
+# sending to group chats, broadcasting to channels).
+#
+# Applied at: each channel adapter's send() method.
+
+blocked_recipient_patterns:
+  - "broadcast"
+  - "status@"
+  - "@g.us"
+  - "@newsletter"
+
+# ---------------------------------------------------------------------------
+# Channel Safety Defaults
+# ---------------------------------------------------------------------------
+# Per-channel safety settings. These are applied unless overridden in the
+# channel's own config block in gateway config.yaml.
+
+channel_defaults:
+  # WhatsApp: block system senders and dangerous recipients
+  whatsapp:
+    blocked_sender_patterns:
+      - "status@broadcast"
+      - "@g.us"
+      - "@newsletter"
+    blocked_recipient_patterns:
+      - "broadcast"
+      - "@g.us"
+      - "@newsletter"
+      - "status@"
+
+  # Telegram: DM-only by default. Set allow_groups: true to enable groups.
+  telegram:
+    allow_groups: false
+
+  # Discord: DM-only enforced in adapter code (guild messages dropped).
+  discord:
+    dm_only: true
+
+  # Slack: DM-only enforced in adapter code (channel_type != "im" dropped).
+  slack:
+    dm_only: true
+
+# ---------------------------------------------------------------------------
+# Proactive Send Rules
+# ---------------------------------------------------------------------------
+# Controls who the AI can proactively message (via send_to_channel,
+# heartbeat routing, send-user-message skill, cron job output).
+
+proactive_send:
+  # Only send to senders approved in PairingStore.
+  # If false, the AI can send to any sender_id (DANGEROUS).
+  require_approved_sender: true
+
+  # Heartbeat agent_ids are internal system senders — they bypass the
+  # approved sender check because they're explicitly configured.
+  allow_heartbeat_agents: true
+
+# ---------------------------------------------------------------------------
+# Dry Run Mode
+# ---------------------------------------------------------------------------
+# When true, ALL outbound sends are logged but never delivered.
+# Use this when testing a new channel before going live.
+# Can also be set per-channel: channels.mychannel.dry_run = true
+
+global_dry_run: false
+
+# ---------------------------------------------------------------------------
+# Rate Limiting
+# ---------------------------------------------------------------------------
+# Inbound rate limit per sender (messages per minute).
+
+rate_limit:
+  messages_per_minute: 10
+
+# Outbound rate limit per recipient per hour (proactive sends only).
+# Prevents a misbehaving cron/heartbeat from spamming a user.
+outbound_rate_limit:
+  sends_per_recipient_per_hour: 20
+
+# ---------------------------------------------------------------------------
+# Automation Mode
+# ---------------------------------------------------------------------------
+# Applied to sessions created by cron jobs and heartbeat.
+# Restricts dangerous tools (secrets blocked, bash warned, etc.)
+
+automation:
+  block_secrets: true
+  warn_bash: true
+  warn_file_writes: true
+  block_unclassified_tools: true
