@@ -68,9 +68,7 @@ class WhatsAppChannel(ChannelAdapter):
             return
 
         if not _BRIDGE_SCRIPT.exists():
-            logger.error(
-                "WhatsApp bridge script not found at %s", _BRIDGE_SCRIPT
-            )
+            logger.error("WhatsApp bridge script not found at %s", _BRIDGE_SCRIPT)
             return
 
         # Auto-install npm deps if missing
@@ -90,7 +88,9 @@ class WhatsAppChannel(ChannelAdapter):
                 self.name,
             )
             proc = await asyncio.create_subprocess_exec(
-                npm_path, "install", "--production",
+                npm_path,
+                "install",
+                "--production",
                 cwd=str(pkg_dir),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -212,8 +212,7 @@ class WhatsAppChannel(ChannelAdapter):
 
         if event_type == "qr":
             logger.info(
-                "WhatsApp QR code generated — scan with your phone "
-                "(also saved to %s)",
+                "WhatsApp QR code generated — scan with your phone (also saved to %s)",
                 self._qr_file,
             )
 
@@ -233,6 +232,34 @@ class WhatsAppChannel(ChannelAdapter):
         elif event_type == "error":
             logger.error("WhatsApp bridge error: %s", data.get("message", ""))
 
+    # ---- safety filters ----
+
+    # Addresses that are NEVER real human senders. Messages from these
+    # must be silently dropped — they are WhatsApp system events (status
+    # updates, newsletter digests, group metadata changes).
+    _BLOCKED_SENDER_PATTERNS = ("status@broadcast", "@g.us", "@newsletter")
+
+    @staticmethod
+    def _is_system_sender(sender_id: str) -> bool:
+        """Return True if sender_id is a WhatsApp system address, not a person."""
+        if not sender_id:
+            return True
+        lower = sender_id.lower()
+        return any(pat in lower for pat in WhatsAppChannel._BLOCKED_SENDER_PATTERNS)
+
+    # Addresses that must NEVER receive outbound messages. Sending to
+    # status@broadcast posts a public WhatsApp Status visible to all
+    # contacts. Sending to @g.us sends to a group chat.
+    _BLOCKED_RECIPIENT_PATTERNS = ("broadcast", "@g.us", "@newsletter", "status@")
+
+    @staticmethod
+    def _is_blocked_recipient(recipient: str) -> bool:
+        """Return True if recipient is a broadcast/group/system address."""
+        if not recipient:
+            return True
+        lower = recipient.lower()
+        return any(pat in lower for pat in WhatsAppChannel._BLOCKED_RECIPIENT_PATTERNS)
+
     # ---- inbound messages ----
 
     async def _handle_inbound(self, data: dict[str, Any]) -> None:
@@ -241,6 +268,14 @@ class WhatsAppChannel(ChannelAdapter):
         sender_label = data.get("sender", "")
         text = data.get("text", "")
         files = data.get("files", [])
+
+        # GUARD 1: Drop system senders (status@broadcast, groups, newsletters)
+        if self._is_system_sender(sender_id):
+            logger.debug(
+                "WhatsApp: dropping system message from '%s' (not a real sender)",
+                sender_id,
+            )
+            return
 
         attachments = [{"type": "file", "path": f} for f in files]
 
@@ -269,21 +304,26 @@ class WhatsAppChannel(ChannelAdapter):
                 )
                 await self.send(outbound)
         except Exception:
-            logger.exception(
-                "Error processing WhatsApp message from '%s'", sender_id
-            )
+            logger.exception("Error processing WhatsApp message from '%s'", sender_id)
 
     # ---- outbound ----
 
     async def send(self, message: OutboundMessage) -> bool:
         """Send a message via WhatsApp."""
         if not self._process or not self._process.stdin:
-            logger.warning(
-                "WhatsApp adapter '%s' not running — cannot send", self.name
-            )
+            logger.warning("WhatsApp adapter '%s' not running — cannot send", self.name)
             return False
 
         to = message.thread_id or ""
+
+        # GUARD 3: Hard block on dangerous recipient addresses
+        if self._is_blocked_recipient(to):
+            logger.warning(
+                "WhatsApp BLOCKED outbound to dangerous address '%s' — "
+                "refusing to send (would post to broadcast/group/newsletter)",
+                to,
+            )
+            return False
 
         # Send file attachments
         file_paths = [a.get("path", "") for a in message.attachments if a.get("path")]
@@ -296,10 +336,12 @@ class WhatsAppChannel(ChannelAdapter):
             file_paths.append(str(md_path))
             text = text[:_MAX_TEXT_LENGTH] + "\n\n(full response attached as file)"
 
-        self._write_cmd({
-            "type": "send",
-            "data": {"to": to, "text": text, "files": file_paths},
-        })
+        self._write_cmd(
+            {
+                "type": "send",
+                "data": {"to": to, "text": text, "files": file_paths},
+            }
+        )
         return True
 
     # ---- helpers ----
@@ -317,14 +359,14 @@ class WhatsAppChannel(ChannelAdapter):
             split_at = remaining.rfind("\n\n", 0, max_len)
             if split_at > 0:
                 chunks.append(remaining[:split_at])
-                remaining = remaining[split_at + 2:]
+                remaining = remaining[split_at + 2 :]
                 continue
 
             for sep in (". ", "! ", "? ", ".\n"):
                 split_at = remaining.rfind(sep, 0, max_len)
                 if split_at > 0:
                     chunks.append(remaining[: split_at + 1])
-                    remaining = remaining[split_at + 1:].lstrip()
+                    remaining = remaining[split_at + 1 :].lstrip()
                     break
             else:
                 chunks.append(remaining[:max_len])

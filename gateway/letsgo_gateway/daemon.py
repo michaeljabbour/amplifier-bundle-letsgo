@@ -249,10 +249,26 @@ class GatewayDaemon:
 
     # ---- message handling ----
 
+    # ---- safety: blocked sender patterns (daemon-level, all channels) ----
+
+    # These patterns are dropped BEFORE auth, rate limiting, or routing.
+    # This is the first line of defense — channel adapters should also
+    # filter, but if they miss something, the daemon catches it here.
+    _BLOCKED_SENDER_PATTERNS = ("broadcast", "status@", "@newsletter")
+
     async def _on_message(self, message: InboundMessage) -> str:
-        """Core message handler — auth -> pairing -> route -> respond."""
+        """Core message handler — safety -> auth -> pairing -> route -> respond."""
         sender_id = message.sender_id
         channel = message.channel
+
+        # 0. SAFETY: Drop system/broadcast senders (all channels)
+        if any(pat in sender_id.lower() for pat in self._BLOCKED_SENDER_PATTERNS):
+            logger.debug(
+                "Daemon: dropping message from blocked sender '%s' on %s",
+                sender_id,
+                channel,
+            )
+            return ""
 
         # 1. Check auth
         if not self.auth.is_approved(sender_id, channel):
@@ -370,10 +386,28 @@ class GatewayDaemon:
         sender_id: str,
         text: str,
     ) -> bool:
-        """Send a proactive message to a user via a channel."""
+        """Send a proactive message to a user via a channel.
+
+        SAFETY: Only sends to sender_ids that are approved in PairingStore.
+        This enforces the meta-rule: the AI can only reach someone who has
+        first reached out to the AI and been approved.
+        """
+        # META-RULE: Only send to approved senders
         adapter = self.channels.get(channel_name)
         if not adapter:
             logger.warning("No adapter for channel '%s'", channel_name)
+            return False
+
+        # Check sender is approved (resolve channel type from adapter)
+        ch_type_str = adapter.config.get("type", channel_name)
+        ch_type = ChannelType(ch_type_str)
+        if not self.auth.is_approved(sender_id, ch_type):
+            logger.warning(
+                "BLOCKED proactive send to unapproved sender '%s' on %s — "
+                "the AI can only reach senders who have been approved",
+                sender_id,
+                channel_name,
+            )
             return False
 
         # Resolve channel type from adapter
