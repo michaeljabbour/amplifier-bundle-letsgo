@@ -1,29 +1,32 @@
 # LetsGo
 
-A personal AI assistant platform for [Amplifier](https://github.com/microsoft/amplifier) — security, memory, multi-channel messaging, voice, visual canvas, admin dashboard, browser automation, and MCP integration, all composable and configurable through a single onboarding flow.
+A personal AI assistant platform for [Amplifier](https://github.com/microsoft/amplifier) — security, memory, multi-channel messaging, voice, visual canvas, admin dashboard, browser automation, and MCP integration, all in one bundle.
 
 ## About LetsGo
 
 LetsGo transforms Amplifier into a full personal AI assistant that connects to every major messaging platform (Discord, Telegram, Slack, WhatsApp, Signal, Matrix, Teams, and more), remembers context across sessions, manages credentials securely, and can be extended with voice transcription, a visual canvas, a web dashboard, browser automation, and external tool servers.
 
-The core bundle provides security, memory, observability, and a multi-channel gateway. Five optional satellite bundles add capabilities on top. You install only what you need — the setup wizard handles everything.
+One bundle gives you everything. Optional capabilities activate when you install their dependencies — the setup wizard handles it all.
 
 ## What This Bundle Provides
 
-- **Multi-channel messaging gateway** — 13 channel adapters (Discord, Telegram, Slack, WhatsApp, Signal, Matrix, Teams, LINE, Google Chat, iMessage, Nostr, IRC, Mattermost, Twitch, Feishu) with sender pairing, file exchange, and cron scheduling
-- **Bio-inspired memory system** — 8-module pipeline: capture, score, consolidate, compress, inject. Agents remember across sessions.
+- **Multi-channel messaging gateway** — 13 channel adapters with sender pairing, file exchange, and cron scheduling
+- **Bio-inspired memory system** — 8-module pipeline: capture, score, consolidate, compress, inject across sessions
 - **Encrypted secrets** — Fernet-encrypted credential storage with handle-based access (plaintext never exposed)
 - **Security & tool policy** — 4-tier risk classification, command allowlists, careful mode, automation mode
 - **Sandboxed execution** — Docker-first isolated command execution with resource limits
 - **Observability & telemetry** — 7-event session telemetry with tool metrics and JSONL logs
 - **Heartbeat engine** — Proactive scheduled agent sessions for check-ins and automation
-- **21 domain skills** — Documents (docx/pdf/pptx/xlsx), creative design, MCP server building, browser automation, and more
-- **5 specialist agents** — Gateway operator, memory curator, security reviewer, creative specialist, document specialist
+- **Voice** — Transcription (Whisper) + TTS (ElevenLabs, edge-tts, OpenAI) across all channels
+- **Canvas** — Agent-driven visual workspace with real-time WebSocket push
+- **WebChat + Admin Dashboard** — Web chat interface + 6-tab admin dashboard with bearer token auth
+- **Browser automation** — 3 browser agents (operator, researcher, visual-documenter)
+- **MCP integration** — Bridge to external MCP tool servers via stdio or Streamable HTTP
+- **22 domain skills** — Documents, creative design, MCP server building, browser automation, and more
+- **8 specialist agents** — Gateway operator, memory curator, security reviewer, creative specialist, document specialist, voice specialist, admin assistant, MCP specialist
 - **3 runtime modes** — Careful mode, automation mode, `/letsgo-init`
 
 ## Quick Start
-
-The recommended way to use LetsGo is to install the behavior at your app level:
 
 ```bash
 # Install (once)
@@ -45,8 +48,6 @@ The wizard walks you through everything:
 2. **Messaging Channels** — Select which platforms to connect. Dependencies installed automatically.
 3. **Optional Capabilities** — Choose add-ons (voice, canvas, webchat, browser, MCP). Dependencies installed automatically.
 4. **Gateway Daemon** — Start the always-on daemon with heartbeat scheduling.
-
-Zero manual file editing. Zero pip commands. Zero YAML wrangling.
 
 ### Alternative: Direct Include
 
@@ -70,7 +71,7 @@ includes:
 
 ## Optional Capabilities
 
-LetsGo includes voice, canvas, webchat, browser, and MCP capabilities out of the box. They activate when you install their dependencies — the setup wizard handles this, or install manually:
+All capabilities are included in the bundle. They activate when their dependencies are installed — the setup wizard handles this, or install manually:
 
 | Capability | What It Adds | Activate |
 |-----------|-------------|----------|
@@ -118,11 +119,70 @@ letsgo-gateway cron list                                          # List schedul
 letsgo-gateway cron create --name N --cron EXPR --recipe PATH     # Create job
 ```
 
+## Security
+
+### The Meta-Rule
+
+> **The AI should only be able to reach someone who has first reached out to the AI and been approved.**
+
+This is enforced at the daemon level for all channels, all send paths. The only exception is heartbeat agent_ids (internal system senders explicitly listed in the gateway config).
+
+### Security Defaults
+
+All dangerous permissions are centralized in a single, auditable YAML file:
+
+```
+gateway/letsgo_gateway/security_defaults.yaml
+```
+
+This file defines:
+
+- **Blocked inbound sender patterns** — system addresses silently dropped before auth (e.g., `broadcast`, `status@`, `@newsletter`)
+- **Blocked outbound recipient patterns** — addresses the gateway will never send to (e.g., `broadcast`, `@g.us`, `@newsletter`)
+- **Channel safety defaults** — per-channel settings (Telegram DM-only, Discord DM-only, etc.)
+- **Proactive send rules** — require approved sender, allow heartbeat agents
+- **Dry-run mode** — log outbound without delivering (for testing new channels)
+- **Rate limiting** — inbound messages per minute, outbound sends per recipient per hour
+- **Automation mode** — tool restrictions for unattended sessions (blocks secrets, warns bash)
+
+Override any setting in your gateway `config.yaml` under a `security:` key. The gateway reads defaults at startup and applies them to all channels.
+
+### Defense in Depth
+
+Three independent layers protect against blast scenarios (e.g., the AI posting to all your contacts):
+
+```
+Inbound message arrives
+        |
+        v
+  1. Daemon: blocked sender patterns -> DROP (all channels)
+        |
+        v
+  2. Channel adapter: per-channel filtering (DM-only, system events) -> DROP
+        |
+        v  (only real, approved senders reach here)
+  3. Outbound: blocked recipient check + approved sender check -> HARD BLOCK
+```
+
+Each layer is independent — even if one is bypassed, the others catch it.
+
+### Additional Security
+
+- **4-tier tool policy** — blocked, high (approval required), medium (logged), low (silent)
+- **Fernet encryption** — AES-128-CBC + HMAC-SHA256 for secrets at rest
+- **Handle-based secret access** — plaintext never returned; 5-minute TTL on handles
+- **Docker sandbox** — isolated execution with 512MB/1CPU/120s limits, no network
+- **Sender pairing** — 6-character codes, single-use, admin approval required
+- **Dry-run mode** — `config.dry_run: true` on any channel to log outbound without delivering
+- **JSONL audit trails** — tool policy + secrets + telemetry at `~/.letsgo/logs/`
+
+See [docs/TOOL_POLICY_GUIDE.md](docs/TOOL_POLICY_GUIDE.md) for the complete reference.
+
 ## Modes
 
 | Mode | Shortcut | Purpose |
 |------|----------|---------|
-| `letsgo-init` | `/letsgo-init` | Interactive setup wizard — provider, channels, satellites, gateway |
+| `letsgo-init` | `/letsgo-init` | Interactive setup wizard — provider, channels, capabilities, gateway |
 | `careful` | `/careful` | Approval gates on high-risk tool calls |
 | `automation` | `/automation` | Restricted profile for unattended operation |
 
@@ -135,10 +195,13 @@ letsgo-gateway cron create --name N --cron EXPR --recipe PATH     # Create job
 | `letsgo:security-reviewer` | Tool policy review, risk classification, allowlist management |
 | `letsgo:creative-specialist` | Orchestrates 6 creative skills (canvas-design, algorithmic-art, brand-guidelines, frontend-design, theme-factory, slack-gif-creator) |
 | `letsgo:document-specialist` | Orchestrates 4 document skills (docx, pdf, pptx, xlsx) |
+| `letsgo:voice-specialist` | Voice transcription and TTS workflows |
+| `letsgo:admin-assistant` | Gateway administration via the admin dashboard |
+| `letsgo:mcp-specialist` | MCP server configuration, debugging, and tool discovery |
 
 ## Skills
 
-21 domain expertise packages loaded on demand via `load_skill`:
+22 domain expertise packages loaded on demand via `load_skill`:
 
 | Category | Skills |
 |----------|--------|
@@ -146,37 +209,26 @@ letsgo-gateway cron create --name N --cron EXPR --recipe PATH     # Create job
 | **Creative** | `algorithmic-art`, `brand-guidelines`, `canvas-design`, `frontend-design`, `slack-gif-creator`, `theme-factory` |
 | **Developer** | `mcp-builder`, `web-artifacts-builder`, `webapp-testing` |
 | **Communication** | `doc-coauthoring`, `internal-comms` |
-| **Operations** | `agent-browser`, `imagegen`, `schedule`, `send-user-message`, `skill-creator`, `skill-migrator` |
+| **Operations** | `agent-browser`, `imagegen`, `schedule`, `send-user-message`, `skill-creator`, `skill-migrator`, `voice-config` |
 
 ## Memory System
 
 An 8-module bio-inspired pipeline that gives agents durable, intelligent memory across sessions:
 
 ```
-Agent Activity → Capture → Memorability Score (gate: 0.30) → Store (SQLite + FTS5)
-    → Temporal Classification (immediate/task/session/project)
-    → [session:end] Consolidation (boost/decay) → Compression (cluster/merge)
-    → [next prompt] Injection (<memory-context> block, 2000 token budget)
+Agent Activity -> Capture -> Memorability Score (gate: 0.30) -> Store (SQLite + FTS5)
+    -> Temporal Classification (immediate/task/session/project)
+    -> [session:end] Consolidation (boost/decay) -> Compression (cluster/merge)
+    -> [next prompt] Injection (<memory-context> block, 2000 token budget)
 ```
 
 See [docs/MEMORY_GUIDE.md](docs/MEMORY_GUIDE.md) for the complete reference.
-
-## Security
-
-- **4-tier tool policy** — blocked, high (approval required), medium (logged), low (silent)
-- **Fernet encryption** — AES-128-CBC + HMAC-SHA256 for secrets at rest
-- **Handle-based secret access** — plaintext never returned; 5-minute TTL on handles
-- **Docker sandbox** — isolated execution with 512MB/1CPU/120s limits, no network
-- **Sender pairing** — 6-character codes, single-use, admin approval required
-- **JSONL audit trails** — tool policy + secrets + telemetry at `~/.letsgo/logs/`
-
-See [docs/TOOL_POLICY_GUIDE.md](docs/TOOL_POLICY_GUIDE.md) for the complete reference.
 
 ## Recipes
 
 | Recipe | Purpose |
 |--------|---------|
-| `setup-wizard` | 4-stage interactive onboarding (provider → channels → satellites → daemon) |
+| `setup-wizard` | Interactive onboarding (provider -> channels -> capabilities -> daemon) |
 | `channel-onboard` | Per-channel setup and credential configuration |
 | `daily-digest` | Daily summary generation and distribution |
 | `memory-maintenance` | Scheduled memory consolidation and compression |
@@ -206,9 +258,15 @@ amplifier-bundle-letsgo/
 ├── agents/                            # 8 specialist agents
 ├── modes/                             # 3 runtime modes
 ├── skills/                            # 22 domain skills
-├── recipes/                           # 6 workflow recipes
+├── recipes/                           # 5 workflow recipes
 ├── context/                           # Agent awareness context files
 ├── gateway/                           # Gateway daemon (pip: letsgo-gateway)
+│   └── letsgo_gateway/
+│       ├── security_defaults.yaml    # Centralized dangerous permissions
+│       ├── security.py               # Security defaults loader
+│       ├── daemon.py                 # Main gateway daemon
+│       ├── channels/                 # Built-in channel adapters
+│       └── ...
 └── channels/                          # Channel adapter plugins (pip: letsgo-channel-*)
     ├── signal/, matrix/, teams/
     ├── canvas/, webchat/
@@ -216,6 +274,25 @@ amplifier-bundle-letsgo/
 ```
 
 ## Configuration
+
+### Security Defaults
+
+Edit `gateway/letsgo_gateway/security_defaults.yaml` to customize safety boundaries. Override in your gateway `config.yaml`:
+
+```yaml
+# ~/.letsgo/gateway/config.yaml
+security:
+  blocked_sender_patterns:
+    - "broadcast"
+    - "status@"
+    - "@newsletter"
+  channel_defaults:
+    telegram:
+      allow_groups: false    # DM-only (default)
+  proactive_send:
+    require_approved_sender: true
+  global_dry_run: false
+```
 
 ### pyproject.toml
 
