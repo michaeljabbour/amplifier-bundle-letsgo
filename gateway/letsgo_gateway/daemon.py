@@ -260,7 +260,8 @@ class GatewayDaemon:
         if any(b in sender_id.lower() for b in _blocked_patterns):
             logger.error(
                 "BLAST BLOCKED in daemon: refusing to process message "
-                "from broadcast/group sender '%s'", sender_id
+                "from broadcast/group sender '%s'",
+                sender_id,
             )
             return
 
@@ -379,7 +380,12 @@ class GatewayDaemon:
         sender_id: str,
         text: str,
     ) -> bool:
-        """Send a proactive message to a user via a channel."""
+        """Send a proactive message to a user via a channel.
+
+        SAFETY: Only sends to sender_ids that are approved in PairingStore.
+        The AI can only reach someone who has first reached out and been approved.
+        Heartbeat agent_ids bypass this check (they are internal system senders).
+        """
         adapter = self.channels.get(channel_name)
         if not adapter:
             logger.warning("No adapter for channel '%s'", channel_name)
@@ -391,6 +397,19 @@ class GatewayDaemon:
             if ct.value == adapter.config.get("type", ""):
                 ch_type = ct
                 break
+
+        # META-RULE: Only send to approved senders or internal agent_ids.
+        # Heartbeat agent_ids are internal (not real senders) — they're
+        # allowed because heartbeat output is explicitly routed by config.
+        is_heartbeat = sender_id in self._config.get("agents", {})
+        if not is_heartbeat and not self.auth.is_approved(sender_id, ch_type):
+            logger.warning(
+                "BLOCKED proactive send to unapproved sender '%s' on %s — "
+                "the AI can only reach senders who have been approved",
+                sender_id,
+                channel_name,
+            )
+            return False
 
         outbound = OutboundMessage(
             channel=ch_type,

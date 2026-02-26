@@ -137,6 +137,9 @@ class TelegramChannel(ChannelAdapter):
         self._allowed_chat_ids: list[int] = [
             int(c) for c in config.get("allowed_chat_ids", [])
         ]
+        # SAFETY: Default to DM-only. Groups require explicit opt-in.
+        # Set allow_groups: true in config to enable group messages.
+        self._allow_groups: bool = config.get("allow_groups", False)
         self._available: bool = _available
         self._app: Any = None  # Application[...] when available
 
@@ -255,6 +258,18 @@ class TelegramChannel(ChannelAdapter):
         if msg is None or update.effective_chat is None:
             return
         if not self._is_chat_allowed(update.effective_chat.id):
+            return
+
+        # SAFETY: DM-only by default. Drop group/supergroup/channel messages
+        # unless allow_groups is explicitly True in config.
+        chat_type = update.effective_chat.type
+        if not self._allow_groups and chat_type != "private":
+            logger.debug(
+                "Telegram '%s': dropping non-DM message (chat_type=%s, "
+                "set allow_groups: true to enable)",
+                self.name,
+                chat_type,
+            )
             return
 
         # Send typing indicator
