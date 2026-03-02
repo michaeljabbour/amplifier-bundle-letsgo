@@ -499,7 +499,7 @@ async def mount(coordinator, config=None):  # noqa: ANN001
         "tool:pre",
         hook.handle,
         priority=5,
-        name="hooks-tool-policy",
+        name="hooks-tool-policy.tool_pre",
     )
 
     logger.info(

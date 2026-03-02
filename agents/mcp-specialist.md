@@ -28,3 +28,8 @@ When an MCP server connection fails:
 - `@modelcontextprotocol/server-github` — GitHub API
 - `@modelcontextprotocol/server-postgres` — PostgreSQL queries
 - `@modelcontextprotocol/server-brave-search` — web search
+
+## Knowledge Base
+
+@letsgo:context/mcp-awareness.md
+@letsgo:docs/MCP_GUIDE.md

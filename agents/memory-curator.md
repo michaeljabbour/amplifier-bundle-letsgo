@@ -21,6 +21,7 @@ You are the **memory system specialist** for LetsGo. You manage durable storage,
 ## Knowledge Base
 
 @letsgo:context/memory-system-awareness.md
+@letsgo:docs/MEMORY_SYSTEM_GUIDE.md
 
 ## Operating Principles
 

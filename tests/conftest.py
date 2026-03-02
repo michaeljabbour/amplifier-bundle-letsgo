@@ -7,35 +7,76 @@ sys.path setup so each module package is importable, and a tmp_dir fixture.
 from __future__ import annotations
 
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 # ---------------------------------------------------------------------------
+# Stub amplifier_core.models so tests run without the full amplifier install
+# ---------------------------------------------------------------------------
+if "amplifier_core" not in sys.modules:
+
+    class _ToolResult:
+        def __init__(
+            self,
+            success: bool = True,
+            output: Any = None,
+            error: Any = None,
+        ):
+            self.success = success
+            self.output = output
+            self.error = error
+
+    class _HookResult:
+        def __init__(self, action: str = "continue", **kwargs: Any):
+            self.action = action
+            # Defaults matching amplifier_core.models.HookResult
+            self.data = None
+            self.reason = None
+            self.context_injection = None
+            self.context_injection_role = "system"
+            self.ephemeral = False
+            self.approval_prompt = None
+            self.approval_options = None
+            self.approval_timeout = 300.0
+            self.approval_default = "deny"
+            self.suppress_output = False
+            self.user_message = None
+            self.user_message_level = "info"
+            self.append_to_last_tool_result = False
+            # Override with any explicitly passed kwargs
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+
+    _amp = types.ModuleType("amplifier_core")
+    _models = types.ModuleType("amplifier_core.models")
+    _models.ToolResult = _ToolResult  # type: ignore[attr-defined]
+    _models.HookResult = _HookResult  # type: ignore[attr-defined]
+    _amp.models = _models  # type: ignore[attr-defined]
+    sys.modules["amplifier_core"] = _amp
+    sys.modules["amplifier_core.models"] = _models
+
+# ---------------------------------------------------------------------------
 # Import path setup: add each module's parent dir so bare imports work
 # ---------------------------------------------------------------------------
 
 _BUNDLE_ROOT = Path(__file__).resolve().parent.parent
-_MODULE_DIRS = [
-    _BUNDLE_ROOT / "modules" / "hooks-tool-policy",
-    _BUNDLE_ROOT / "modules" / "hooks-telemetry",
-    _BUNDLE_ROOT / "modules" / "hooks-memory-inject",
-    _BUNDLE_ROOT / "modules" / "hooks-memory-capture",
-    _BUNDLE_ROOT / "modules" / "hooks-memory-boundaries",
-    _BUNDLE_ROOT / "modules" / "hooks-memory-memorability",
-    _BUNDLE_ROOT / "modules" / "hooks-memory-consolidation",
-    _BUNDLE_ROOT / "modules" / "hooks-memory-temporal",
-    _BUNDLE_ROOT / "modules" / "hooks-memory-compression",
-    _BUNDLE_ROOT / "modules" / "tool-sandbox",
-    _BUNDLE_ROOT / "modules" / "tool-secrets",
-    _BUNDLE_ROOT / "modules" / "tool-memory-store",
-    _BUNDLE_ROOT / "modules" / "tool-media-pipeline",
-    _BUNDLE_ROOT / "modules" / "tool-canvas",
-    _BUNDLE_ROOT / "modules" / "tool-mcp-client",
-    # Gateway package lives under gateway/
-    _BUNDLE_ROOT / "gateway",
-]
+
+# Auto-discover module directories: any subdir of modules/ that contains a
+# Python package
+_MODULE_DIRS: list[Path] = []
+_modules_root = _BUNDLE_ROOT / "modules"
+if _modules_root.is_dir():
+    for child in sorted(_modules_root.iterdir()):
+        if child.is_dir() and not child.name.startswith((".", "_")):
+            _MODULE_DIRS.append(child)
+
+# Gateway package lives alongside modules/
+_gateway_dir = _BUNDLE_ROOT / "gateway"
+if _gateway_dir.is_dir():
+    _MODULE_DIRS.append(_gateway_dir)
 
 for d in _MODULE_DIRS:
     d_str = str(d)

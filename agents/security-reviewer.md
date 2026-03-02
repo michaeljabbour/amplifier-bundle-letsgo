@@ -26,6 +26,7 @@ You are the **tool execution policy specialist** for LetsGo. You enforce, review
 ## Knowledge Base
 
 @letsgo:docs/TOOL_POLICY_GUIDE.md
+@letsgo:docs/SECRETS_GUIDE.md
 
 ## Risk Classification Framework
 
