@@ -64,6 +64,9 @@ def _build_parser() -> argparse.ArgumentParser:
     # start (default)
     sub.add_parser("start", help="Start the gateway daemon")
 
+    # status
+    sub.add_parser("status", help="Show a health snapshot of the running gateway config")
+
     # send
     send_p = sub.add_parser("send", help="Send a proactive message")
     send_p.add_argument("--channel", required=True, help="Channel name")
@@ -278,6 +281,26 @@ def _persist_cron_job(
         path.write_text(json.dumps(data, indent=2))
 
 
+def _cmd_status(args: argparse.Namespace) -> None:
+    """Show a health snapshot from the gateway config without starting listeners."""
+    from .daemon import _load_config
+
+    config = _load_config(args.config)
+    daemon = GatewayDaemon(config=config)
+    snap = daemon.health_check()
+
+    print(f"status          : {snap['status']}")
+    print(f"uptime_seconds  : {snap['uptime_seconds']}")
+    print(f"total_channels  : {snap['total_channels']}")
+    print(f"active_channels : {snap['active_channels']}")
+    print(f"cron_active     : {snap['cron_active']}")
+    print(f"auth_paired     : {snap['auth_paired_count']}")
+    if snap["channels"]:
+        print("channels:")
+        for ch_name, ch_info in snap["channels"].items():
+            print(f"  {ch_name}  type={ch_info['type']}  connected={ch_info['connected']}")
+
+
 # ---- main ----
 
 
@@ -294,6 +317,8 @@ def main() -> None:
 
     if command == "start":
         _cmd_start(args)
+    elif command == "status":
+        _cmd_status(args)
     elif command == "send":
         _cmd_send(args)
     elif command == "pairing":

@@ -151,7 +151,7 @@ async def test_mount_registers_hook(mock_coordinator, tmp_path: Path) -> None:
     assert len(mock_coordinator.hooks.registrations) == 1
     reg = mock_coordinator.hooks.registrations[0]
     assert reg["event"] == "tool:pre"
-    assert reg["name"] == "hooks-tool-policy"
+    assert reg["name"] == "hooks-tool-policy.tool_pre"
     assert reg["priority"] == 5
 
     # cleanup callable should unregister

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,7 @@ class GatewayDaemon:
         )
         self.channels: dict[str, ChannelAdapter] = {}
         self._running = False
+        self._started_at: float | None = None
 
         # Load security defaults (YAML file + config overrides)
         self._security = load_security_defaults(self._config.get("security", {}))
@@ -233,6 +235,7 @@ class GatewayDaemon:
                 logger.exception("Failed to start channel '%s'", name)
 
         await self.cron.start()
+        self._started_at = time.monotonic()
         self._running = True
         logger.info("GatewayDaemon started")
 
@@ -254,6 +257,32 @@ class GatewayDaemon:
         # Close stale sessions
         self.router.close_stale_sessions(0)
         logger.info("GatewayDaemon stopped")
+
+    def health_check(self) -> dict[str, Any]:
+        """Return a health snapshot for ops visibility."""
+        uptime = time.monotonic() - self._started_at if self._started_at else 0.0
+        channel_status = {}
+        for name, adapter in self.channels.items():
+            channel_status[name] = {
+                "connected": getattr(adapter, "connected", False),
+                "type": getattr(adapter, "channel_type", "unknown"),
+            }
+
+        approved_count = sum(
+            1
+            for rec in self.auth._senders.values()
+            if rec.status.value == "approved"
+        )
+
+        return {
+            "status": "healthy" if self._running else "stopped",
+            "uptime_seconds": round(uptime, 1),
+            "channels": channel_status,
+            "active_channels": len([c for c in channel_status.values() if c["connected"]]),
+            "total_channels": len(self.channels),
+            "cron_active": getattr(self.cron, "_running", None),
+            "auth_paired_count": approved_count,
+        }
 
     # ---- message handling ----
 
