@@ -1,8 +1,9 @@
 """Tests for Task 3: Refactor Memory Behaviors.
 
 Acceptance Criteria:
-1. context/memory-awareness.md is <= 25 lines, contains thin pointer with title,
-   one-sentence description, key concepts, safety note, and delegate line to memory-curator.
+1. context/memory-awareness.md is <= 25 lines, contains thin
+   pointer with title, one-sentence description, key concepts,
+   safety note, and delegate line to memory-curator.
 2. context/memory-system-awareness.md is <= 30 lines, contains thin pointer with
    tool operation names, automation summary, and delegate line.
 3. context/memory-store-awareness.md is <= 30 lines, contains thin pointer with
@@ -21,7 +22,9 @@ import re
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEMORY_AWARENESS = os.path.join(REPO_ROOT, "context", "memory-awareness.md")
-MEMORY_SYSTEM_AWARENESS = os.path.join(REPO_ROOT, "context", "memory-system-awareness.md")
+MEMORY_SYSTEM_AWARENESS = os.path.join(
+    REPO_ROOT, "context", "memory-system-awareness.md"
+)
 MEMORY_STORE_AWARENESS = os.path.join(REPO_ROOT, "context", "memory-store-awareness.md")
 MEMORY_CURATOR = os.path.join(REPO_ROOT, "agents", "memory-curator.md")
 MEMORY_SYSTEM_GUIDE = os.path.join(REPO_ROOT, "docs", "MEMORY_SYSTEM_GUIDE.md")
@@ -55,7 +58,7 @@ class TestMemoryAwareness:
         assert "# Memory Injection" in content
 
     def test_has_key_concepts(self):
-        """AC-1: Has key concepts: scored retrieval, ephemeral injection, untrusted notes."""
+        """AC-1: Key concepts: scored retrieval, ephemeral, untrusted."""
         content = _read(MEMORY_AWARENESS).lower()
         assert "scored" in content or "retrieval" in content
         assert "ephemeral" in content
@@ -74,7 +77,7 @@ class TestMemoryAwareness:
         assert "delegate" in content.lower()
 
     def test_no_heavy_docs(self):
-        """AC-1: No implementation details (scoring weights, dedup mechanics, TTL details)."""
+        """AC-1: No heavy implementation details."""
         content = _read(MEMORY_AWARENESS)
         assert "0.55" not in content, "Should not contain scoring weights"
         assert "How It Works" not in content, "Should not have How It Works section"
@@ -90,7 +93,9 @@ class TestMemorySystemAwareness:
     def test_line_count_le_30(self):
         """AC-2: memory-system-awareness.md is <= 30 lines."""
         count = _line_count(MEMORY_SYSTEM_AWARENESS)
-        assert count <= 30, f"memory-system-awareness.md should be <= 30 lines, got {count}"
+        assert count <= 30, (
+            f"memory-system-awareness.md should be <= 30 lines, got {count}"
+        )
 
     def test_has_title(self):
         """AC-2: Has 'Memory System' title."""
@@ -113,7 +118,7 @@ class TestMemorySystemAwareness:
         """AC-2: Has one-line automation summary about background hooks."""
         content = _read(MEMORY_SYSTEM_AWARENESS).lower()
         assert "hook" in content
-        assert ("capture" in content or "automatic" in content or "background" in content)
+        assert "capture" in content or "automatic" in content or "background" in content
 
     def test_has_delegate_line(self):
         """AC-2: Has delegate line to memory-curator."""
@@ -139,7 +144,9 @@ class TestMemoryStoreAwareness:
     def test_line_count_le_30(self):
         """AC-3: memory-store-awareness.md is <= 30 lines."""
         count = _line_count(MEMORY_STORE_AWARENESS)
-        assert count <= 30, f"memory-store-awareness.md should be <= 30 lines, got {count}"
+        assert count <= 30, (
+            f"memory-store-awareness.md should be <= 30 lines, got {count}"
+        )
 
     def test_has_title(self):
         """AC-3: Has 'Memory Store' title."""
@@ -150,9 +157,19 @@ class TestMemoryStoreAwareness:
         """AC-3: Has compact list of operation names."""
         content = _read(MEMORY_STORE_AWARENESS).lower()
         operations = [
-            "store", "search", "list", "get", "update", "delete",
-            "search_by_file", "search_by_concept", "get_timeline",
-            "store_fact", "query_facts", "purge_expired", "summarize_old",
+            "store",
+            "search",
+            "list",
+            "get",
+            "update",
+            "delete",
+            "search_by_file",
+            "search_by_concept",
+            "get_timeline",
+            "store_fact",
+            "query_facts",
+            "purge_expired",
+            "summarize_old",
         ]
         for op in operations:
             assert op in content, f"Missing operation: {op}"
@@ -175,7 +192,9 @@ class TestMemoryStoreAwareness:
         content = _read(MEMORY_STORE_AWARENESS)
         assert "0.55" not in content, "Should not contain scoring weight"
         assert "FTS5" not in content, "Should not contain FTS5 internals"
-        assert "mutation journal" not in content.lower() or len(content.splitlines()) <= 30
+        assert "mutation journal" not in content.lower(), (
+            "Should not contain mutation journal details"
+        )
 
 
 # ============================================================
@@ -198,7 +217,9 @@ class TestMemoryCurator:
         """AC-4: Both @mentions are in the Knowledge Base section."""
         content = _read(MEMORY_CURATOR)
         # Find Knowledge Base section
-        kb_match = re.search(r"## Knowledge Base\s*\n(.*?)(?=\n## |\Z)", content, re.DOTALL)
+        kb_match = re.search(
+            r"## Knowledge Base\s*\n(.*?)(?=\n## |\Z)", content, re.DOTALL
+        )
         assert kb_match, "Missing '## Knowledge Base' section"
         kb_section = kb_match.group(1)
         assert "@letsgo:context/memory-system-awareness.md" in kb_section
@@ -312,6 +333,4 @@ class TestTotalLineCounts:
             + _line_count(MEMORY_SYSTEM_AWARENESS)
             + _line_count(MEMORY_STORE_AWARENESS)
         )
-        assert total <= 90, (
-            f"Total memory awareness lines should be <= 90, got {total}"
-        )
+        assert total <= 90, f"Total memory awareness lines should be <= 90, got {total}"
