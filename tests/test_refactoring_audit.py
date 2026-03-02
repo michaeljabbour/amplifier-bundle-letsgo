@@ -135,11 +135,11 @@ def test_agents_table_row_count():
     )
 
 
-# ---------- AC-2: Status columns all 'pending' ----------
+# ---------- AC-2: Status columns all 'completed' ----------
 
 
-def test_all_status_pending():
-    """AC-2: All Status columns are set to 'pending'."""
+def test_all_status_completed():
+    """AC-2: All Status columns are set to 'completed'."""
     content = _read_audit()
     # Collect all data rows from both tables
     table_rows = [
@@ -151,10 +151,11 @@ def test_all_status_pending():
             or any(f"| {a} " in line for a in EXPECTED_AGENTS)
         )
         and "Status" not in line
+        and line.count("|") >= 6  # skip tables without a Status column
     ]
     assert len(table_rows) > 0, "No table rows found"
     for row in table_rows:
-        assert "pending" in row.lower(), f"Row not 'pending': {row}"
+        assert "completed" in row.lower(), f"Row not 'completed': {row}"
 
 
 # ---------- AC-2: Target metrics section ----------
@@ -166,7 +167,7 @@ def test_target_metrics_section():
     assert "target" in content.lower() or "metric" in content.lower(), (
         "Missing target metrics section"
     )
-    assert "1273" in content, "Missing total context lines before count (1273)"
+    assert "1,273" in content, "Missing total context lines before count (1,273)"
 
 
 # ---------- AC-2: Completed section ----------
