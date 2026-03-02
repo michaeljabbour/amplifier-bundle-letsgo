@@ -10,6 +10,7 @@ AUDIT_PATH = os.path.join(REPO_ROOT, "docs", "refactoring-audit.md")
 
 # ---------- AC-1: Feature branch exists ----------
 
+
 def test_feature_branch_exists():
     """AC-1: Feature branch feat/thin-behaviors exists."""
     result = subprocess.run(
@@ -17,6 +18,7 @@ def test_feature_branch_exists():
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     assert "feat/thin-behaviors" in result.stdout, (
         "Branch feat/thin-behaviors does not exist"
@@ -24,6 +26,7 @@ def test_feature_branch_exists():
 
 
 # ---------- AC-2: Audit document exists ----------
+
 
 def test_audit_file_exists():
     """AC-2: docs/refactoring-audit.md exists."""
@@ -72,11 +75,18 @@ def _read_audit():
 
 
 def _is_table_data_row(line):
-    """True if line is a markdown table data row (not header/separator)."""
-    return "|" in line and "---" not in line
+    """True if line is a markdown table data row (not header or separator)."""
+    if "|" not in line or "---" in line:
+        return False
+    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+    # Exclude header rows whose first cell is a generic column heading
+    if cells and cells[0] in ("File", "Agent"):
+        return False
+    return True
 
 
 # ---------- AC-2: Awareness files table ----------
+
 
 def test_awareness_table_has_all_files():
     """AC-2: Awareness files table lists all context files."""
@@ -89,9 +99,9 @@ def test_awareness_table_row_count():
     """AC-2: Awareness files table has at least 17 rows."""
     content = _read_audit()
     context_rows = [
-        line for line in content.splitlines()
-        if _is_table_data_row(line)
-        and any(f in line for f in EXPECTED_CONTEXT_FILES)
+        line
+        for line in content.splitlines()
+        if _is_table_data_row(line) and any(f in line for f in EXPECTED_CONTEXT_FILES)
     ]
     assert len(context_rows) >= 17, (
         f"Expected at least 17 awareness-file rows, found {len(context_rows)}"
@@ -99,6 +109,7 @@ def test_awareness_table_row_count():
 
 
 # ---------- AC-2: Agents table has 8 agents ----------
+
 
 def test_agents_table_has_all_agents():
     """AC-2: Agents table lists all 8 agent files."""
@@ -113,7 +124,8 @@ def test_agents_table_row_count():
     # Agent rows start with "| <agent-name>" as the first column
     # and do NOT contain ".md" (which would be awareness table rows)
     agent_rows = [
-        line for line in content.splitlines()
+        line
+        for line in content.splitlines()
         if _is_table_data_row(line)
         and any(f"| {a} " in line or f"| {a} |" in line for a in EXPECTED_AGENTS)
         and ".md" not in line
@@ -125,12 +137,14 @@ def test_agents_table_row_count():
 
 # ---------- AC-2: Status columns all 'pending' ----------
 
+
 def test_all_status_pending():
     """AC-2: All Status columns are set to 'pending'."""
     content = _read_audit()
     # Collect all data rows from both tables
     table_rows = [
-        line for line in content.splitlines()
+        line
+        for line in content.splitlines()
         if _is_table_data_row(line)
         and (
             any(f in line for f in EXPECTED_CONTEXT_FILES)
@@ -145,6 +159,7 @@ def test_all_status_pending():
 
 # ---------- AC-2: Target metrics section ----------
 
+
 def test_target_metrics_section():
     """AC-2: Audit contains target metrics (before vs after)."""
     content = _read_audit()
@@ -155,6 +170,7 @@ def test_target_metrics_section():
 
 
 # ---------- AC-2: Completed section ----------
+
 
 def test_completed_section_exists():
     """AC-2: Audit has a Completed section for tracking progress."""
