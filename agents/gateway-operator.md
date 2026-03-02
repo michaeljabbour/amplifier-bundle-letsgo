@@ -19,6 +19,7 @@ You are the **gateway operations specialist** for LetsGo. You manage the lifecyc
 ## Knowledge Base
 
 @letsgo:context/gateway-awareness.md
+@letsgo:docs/GATEWAY_GUIDE.md
 
 ## Operating Principles
 
