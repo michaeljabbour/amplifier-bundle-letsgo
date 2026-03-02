@@ -23,6 +23,7 @@ You are the **creative design and visual art specialist** for LetsGo. You orches
 ## Knowledge Base
 
 @letsgo:context/skills-awareness.md
+@letsgo:context/canvas-awareness.md
 
 ## First Steps
 
